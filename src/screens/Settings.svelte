@@ -7,7 +7,6 @@
   import QrCode from "../components/QrCode.svelte";
 
   let confirmRemove = $state(false);
-  let confirmShare = $state(false);
   let clearing = $state(false);
   let confirmClearProgress = $state(false);
 
@@ -89,14 +88,9 @@
         {#if showCode}
           <div class="line sync-link"><QrCode text={syncLink(app.sync.code, app.sync.relay, DEFAULT_RELAY)} /><code class="sync-code">{formatCode(app.sync.code)}</code></div>
         {/if}
-        <div class="line"><div>Share provider logins<small>{confirmShare
-            ? "Your providers' addresses, usernames and passwords go to your other linked devices that have this on, and they get theirs. They're end-to-end encrypted: the relay can't read them, but anyone with your sync code could. Adding, changing or removing a provider then does the same on those devices, including removing what was watched with it."
-            : "Your providers, with their logins, on your other devices that share them too."}</small></div>
-          {#if app.meta.shareLogins}<button class="switch on" aria-label="Share provider logins" onclick={() => app.setShareLogins(false)}></button>
-          {:else if confirmShare}<div class="btns"><button class="btn small" onclick={() => { confirmShare = false; app.setShareLogins(true); }}>Share them</button><button class="btn small" onclick={() => (confirmShare = false)}>Cancel</button></div>
-          {:else}<button class="switch" aria-label="Share provider logins" onclick={() => (confirmShare = true)}></button>{/if}</div>
+        <div class="line"><div>Provider logins are never shared<small>Sign in on each device.</small></div></div>
       {:else}
-        <div class="line"><div>Pick up where you left off on your other devices<small>Shares progress, Continue watching and My List, end-to-end encrypted. Provider logins aren't shared unless you turn that on.</small></div>
+        <div class="line"><div>Pick up where you left off on your other devices<small>Shares progress, Continue watching and My List, end-to-end encrypted. Provider logins are never shared.</small></div>
           <div class="btns"><button class="btn small primary" disabled={linking || !relay.trim()} onclick={() => link()}>Start syncing</button>
             <button class="btn small" disabled={linking} onclick={() => (joining = !joining)}>I have a code</button></div></div>
         {#if joining}

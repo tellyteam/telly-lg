@@ -51,8 +51,6 @@ export interface Keys {
   auth: string;
   /** Keys provider tags (see [providerTag]). */
   provider: Uint8Array;
-  /** Seals the opt-in logins box (see [sealLogins]). */
-  logins: Uint8Array;
 }
 
 function base64url(b: Uint8Array): string {
@@ -69,7 +67,6 @@ export function deriveKeys(code: string): Keys {
     key: derive("key"),
     auth: base64url(derive("auth")),
     provider: derive("provider"),
-    logins: derive("logins"),
   };
 }
 
@@ -77,18 +74,11 @@ export function deriveKeys(code: string): Keys {
 export const providerTag = (keys: Keys, identity: string) => hex(hmac(sha256, keys.provider, utf8(identity)).subarray(0, 8));
 
 const aad = (keys: Keys, device: string) => utf8(`${SALT}|${keys.mailbox}|${device}`);
-const loginsAad = (keys: Keys, device: string) => utf8(`${SALT}|logins|${keys.mailbox}|${device}`);
 
 export const seal = (keys: Keys, device: string, plaintext: string, nonce = randomBytes(12)) => sealBox(keys.key, aad(keys, device), plaintext, nonce);
 
 /** The plaintext, or null if the parcel isn't ours, was altered, or is from a newer version. */
 export const open = (keys: Keys, device: string, box: Uint8Array) => openBox(keys.key, aad(keys, device), box);
-
-/** The opt-in logins box: sealed again, with its own key, inside the (already sealed) parcel. */
-export const sealLogins = (keys: Keys, device: string, plaintext: string, nonce = randomBytes(12)) =>
-  sealBox(keys.logins, loginsAad(keys, device), plaintext, nonce);
-
-export const openLogins = (keys: Keys, device: string, box: Uint8Array) => openBox(keys.logins, loginsAad(keys, device), box);
 
 function sealBox(key: Uint8Array, aad: Uint8Array, plaintext: string, nonce: Uint8Array): Uint8Array {
   const sealed = gcm(key, nonce, aad).encrypt(utf8(plaintext));

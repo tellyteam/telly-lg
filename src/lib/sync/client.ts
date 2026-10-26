@@ -57,14 +57,14 @@ export async function pull(transport: Transport, relay: string, keys: Keys, devi
   for (const p of parcels ?? []) {
     if (p.device === device) continue;
     const text = open(keys, p.device, fromBase64(p.body));
-    const bundle = text === null ? null : parseBundle(text, current, keys, p.device);
+    const bundle = text === null ? null : parseBundle(text, current);
     if (bundle) result.push(bundle);
   }
   return result;
 }
 
 export async function push(transport: Transport, relay: string, keys: Keys, device: string, bundle: Bundle): Promise<void> {
-  const body = seal(keys, device, bundleJson(bundle, keys, device));
+  const body = seal(keys, device, bundleJson(bundle));
   check(await transport({ method: "PUT", url: `${base(relay)}/v1/${keys.mailbox}/${device}`, auth: keys.auth, body }));
 }
 

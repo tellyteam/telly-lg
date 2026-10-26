@@ -33,31 +33,6 @@
   const plainHttp = $derived((kind === "xtream" ? server : url).trim().toLowerCase().startsWith("http://"));
   const ready = $derived(kind === "xtream" ? !!(server.trim() && username.trim() && password) : !!url.trim());
 
-  let wordmarkClicks = 0;
-  let wordmarkTimer: ReturnType<typeof setTimeout> | undefined;
-  function clickWordmark() {
-    clearTimeout(wordmarkTimer);
-    wordmarkTimer = setTimeout(() => (wordmarkClicks = 0), 3000);
-    if (++wordmarkClicks < 7 || inApp) return;
-    wordmarkClicks = 0;
-    if (!app.syncShown) app.toggleSyncUnlocked();
-  }
-
-  let joinCode = $state("");
-  let joining = $state(false);
-  let joinError = $state<string | null>(null);
-  async function join() {
-    joining = true;
-    joinError = null;
-    try {
-      await app.joinForLogins(joinCode);
-    } catch (e) {
-      joinError = (e as Error).message;
-    } finally {
-      joining = false;
-    }
-  }
-
   async function connect(e: Event) {
     e.preventDefault();
     if (!ready || busy) return;
@@ -83,8 +58,7 @@
 
 <div class="setup">
   <form class="card-form" onsubmit={connect}>
-    <!-- Seven clicks on the wordmark show "Get your providers from another device" (a hidden feature, like sync). -->
-    <div class="wordmark big" role="presentation" onclick={clickWordmark}><Wordmark height={44} /></div>
+    <div class="wordmark big"><Wordmark height={44} /></div>
     <p class="lead">{existing ? "Your provider" : adding ? "Add another provider" : "Add your IPTV provider to start watching. telly doesn't come with any channels."}</p>
     <div class="chips" style="padding:0 0 6px">
       <button type="button" class="chip" class:sel={kind === "xtream"} onclick={() => (kind = "xtream")}>Xtream Codes</button>
@@ -113,16 +87,8 @@
     {#if !inApp && app.sync}
       <div class="join">
         <h4>This {isWebOS ? "TV" : "browser"} is still linked for sync</h4>
-        <p class="hint">{app.meta.shareLogins ? "Providers your other devices share arrive here on their own." : "Add a provider to pick up where you left off on your other devices."}</p>
+        <p class="hint">Add a provider to pick up where you left off on your other devices.</p>
         <div class="btns"><button class="btn small" type="button" onclick={() => app.stopSync()}>Stop syncing on this {isWebOS ? "TV" : "browser"}</button></div>
-      </div>
-    {:else if !inApp && app.meta.syncUnlocked}
-      <div class="join">
-        <h4>Or get your providers from another device</h4>
-        <p class="hint">On a device that has them, turn on Settings → Sync → Share provider logins, then enter its sync code here.</p>
-        <div class="btns"><div class="field" style="flex:1"><input placeholder="ABCD-EFGH-JKMN-PQRS" bind:value={joinCode} maxlength="19" spellcheck="false" autocomplete="off" /></div>
-          <button class="btn small" type="button" disabled={joining || !joinCode.trim()} onclick={join}>{joining ? "Linking…" : "Get providers"}</button></div>
-        {#if joinError}<div class="error">{joinError}</div>{/if}
       </div>
     {/if}
     <p class="hint">{isWebOS ? "Your login stays on this TV. telly only talks to your provider." : "Your login stays on this computer, in the macOS Keychain. telly only talks to your provider, and to GitHub once a week to check for updates."}</p>

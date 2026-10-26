@@ -1,7 +1,7 @@
 import { createCipheriv, hkdfSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { deriveKeys, formatCode, newCode, normaliseCode, open, openLogins, providerTag, seal, sealLogins } from "./crypto";
-import { bundleJson, mergeBundles, parseBundle, parseLogins } from "./bundle";
+import { deriveKeys, formatCode, newCode, normaliseCode, open, providerTag, seal } from "./crypto";
+import { bundleJson, mergeBundles, parseBundle } from "./bundle";
 import { normaliseServer, syncIdentity, type Provider } from "../model";
 import { merge, parse, trim, TOMBSTONE_MS, type Parcel } from "./parcel";
 import { pull, push, type RelayRequest, type Transport } from "./client";
@@ -211,32 +211,11 @@ describe("version 2", () => {
     expect(m.sections.aaaaaaaaaaaaaaaa.progress["movie/1.mkv"][0]).toBe(6);
   });
 
-  it("seals the logins box as the shared vector says", () => {
-    expect(hex(keys.logins)).toBe("8bef4c523a4e523d49d504c587836e5b804b7fc42d498a2bd59c8a2ecb7dd49f");
-    const sealed = sealLogins(keys, "00112233aabbccdd", "{}", fromHex("000102030405060708090a0b"));
-    expect(hex(sealed)).toBe("01000102030405060708090a0bb8e5248c11cad1416ea6d5dfb19164d7d67c");
-    expect(openLogins(keys, "00112233aabbccdd", sealed)).toBe("{}");
-    expect(open(keys, "00112233aabbccdd", sealed)).toBeNull();
-    expect(openLogins(keys, "aabbccddeeff0011", sealed)).toBeNull();
-  });
-
-  it("carries logins sealed, checks their tags, and keeps the newest", () => {
-    const home: Provider = { kind: "xtream", name: "Home", server: " Example.com:8080/ ", username: "me", password: "pw1", allowCleartext: true };
-    const tag = providerTag(keys, syncIdentity(home));
-    const text = bundleJson({ at: 50, sections: {}, logins: { [tag]: { at: 40, provider: home }, "0123456789abcdef": { at: 30 } } }, keys, "00112233aabbccdd");
-    expect(text).not.toContain("pw1");
-    const back = parseBundle(text, tag, keys, "00112233aabbccdd")!;
-    expect(back.logins?.[tag]).toEqual({ at: 40, provider: home });
-    expect(back.logins?.["0123456789abcdef"]).toEqual({ at: 30 });
-    expect(parseBundle(text, tag)!.logins).toBeUndefined();
-    expect(parseLogins('{"aaaaaaaaaaaaaaaa":{"at":1,"kind":"m3u","name":"x","url":"https://example.com/list.m3u","allowCleartext":false}}', keys)).toEqual({});
-    expect(Object.keys(parseLogins('{"ff2163ea5d23fc01":{"at":1,"kind":"m3u","name":"x","url":"https://example.com/list.m3u","allowCleartext":false}}', keys))).toEqual(["ff2163ea5d23fc01"]);
-    const a: Provider = { kind: "m3u", name: "A", url: "https://a.example/1.m3u", allowCleartext: false };
-    const b: Provider = { ...a, name: "A renamed" };
-    const m = mergeBundles({ at: 10, sections: {}, logins: { "1111111111111111": { at: 5, provider: a } } },
-      [{ at: 10, sections: {}, logins: { "1111111111111111": { at: 9, provider: b }, "2222222222222222": { at: 1 } } }], 1 + TOMBSTONE_MS + 1);
-    expect(m.logins?.["1111111111111111"].provider).toEqual(b);
-    expect(m.logins?.["2222222222222222"]).toBeUndefined();
-    expect(mergeBundles({ at: 10, sections: {} }, [{ at: 10, sections: {}, logins: { x: { at: 1 } } }], 20).logins).toBeUndefined();
+  it("ignores an older app's logins and never writes them back", () => {
+    const old = '{"v":2,"at":5,"providers":{"aaaaaaaaaaaaaaaa":{"progress":{"movie/9.mp4":[1,2,5]}}},"logins":"AQABAgMEBQYHCAkKC7jlJIwRytFBbqbV37GRZNfWfA"}';
+    const b = parseBundle(old, null)!;
+    expect(b.sections.aaaaaaaaaaaaaaaa.progress["movie/9.mp4"][0]).toBe(1);
+    const m = mergeBundles({ at: 6, sections: { aaaaaaaaaaaaaaaa: parcel({ at: 6 }) } }, [b], 7);
+    expect(bundleJson(m)).not.toContain("logins");
   });
 });

@@ -3,10 +3,9 @@ import { syncIdentity, type Channel, type Group, type Provider, type Series } fr
 import * as P from "./playback";
 import * as repo from "./repo";
 import { syncOnce, leave as leaveRelay, SyncError } from "./sync/client";
-import type { SharedLogin } from "./sync/bundle";
-import { deriveKeys, hex, newCode, newDeviceId, normaliseCode, providerTag, randomBytes, type Keys } from "./sync/crypto";
+import { deriveKeys, hex, newCode, newDeviceId, normaliseCode, providerTag, randomBytes } from "./sync/crypto";
 import { apply as applySync, emptyLedger, toParcel, type Ledger, type Local } from "./sync/local";
-import { TOMBSTONE_MS, type HistoryEntry } from "./sync/parcel";
+import type { HistoryEntry } from "./sync/parcel";
 
 export type Route =
   | { name: "home" | "search" | "live" | "series" | "films" | "mylist" | "settings" }
@@ -39,8 +38,6 @@ interface Meta {
   syncUnlocked?: boolean;
   /** The saved provider in use, by id. */
   activeProvider?: string;
-  /** Share provider logins with linked devices that do too (opt-in). */
-  shareLogins?: boolean;
 }
 
 /** A provider saved on this TV. [changedAt] is when it was added or last changed (ms). */
@@ -118,9 +115,14 @@ class App {
     this.aspects = asp ?? {};
     this.settings = { ...this.settings, ...set };
     this.meta = meta ?? {};
+    if ("shareLogins" in this.meta) {
+      // Sharing logins between devices was removed: forget the setting and what it kept.
+      delete (this.meta as Record<string, unknown>).shareLogins;
+      backend.storeWrite("meta", this.meta, 0);
+    }
     this.version = version;
     this.sync = parseSync(savedSync);
-    this.removedLogins = (await backend.storeRead<Record<string, number>>("login-ledger")) ?? {};
+    void backend.storeDelete("login-ledger");
     window.addEventListener("focus", () => {
       if (!this.player && Date.now() - (this.syncStatus.at ?? 0) > SYNC_GAP_MS) void this.syncNow();
     });
@@ -140,19 +142,11 @@ class App {
 
   /**
    * The saved providers. Before there could be several, the one provider and its records were kept
-   * unscoped: they become the first saved provider's. One saved without a time gets now: it's still
-   * here, so for shared logins it's newer than any older removal of it on another device.
+   * unscoped: they become the first saved provider's.
    */
   private async loadProviders(): Promise<SavedProvider[]> {
     const text = await backend.secretGet("providers").catch(() => null);
-    if (text) {
-      let list = parseProviders(text);
-      if (list.some((p) => !p.changedAt)) {
-        list = list.map((p) => (p.changedAt ? p : { ...p, changedAt: Date.now() }));
-        await this.saveProviders(list);
-      }
-      return list;
-    }
+    if (text) return parseProviders(text);
     const old = parseProvider(await backend.secretGet("provider").catch(() => null));
     if (!old) return [];
     const saved: SavedProvider = { id: newProviderId(), provider: old, changedAt: Date.now() };
@@ -171,8 +165,6 @@ class App {
   private async saveProviders(list: SavedProvider[]) {
     this.providers = list;
     await backend.secretSet("providers", JSON.stringify(list));
-    // Adding, changing or removing a provider is news for devices sharing logins.
-    if (this.meta.shareLogins) this.syncSoon();
   }
 
   private async readRecords(id: string): Promise<Local> {
@@ -292,7 +284,6 @@ class App {
       // A new server or login means new lists: the old ones go.
       if (syncIdentity(list[i].provider) !== syncIdentity(p)) {
         void repo.clearSavedCataloguesFor(list[i].provider);
-        this.forgetLogin(list[i].provider);
       }
       saved = list[i] = { ...list[i], provider: p, changedAt: Date.now() };
     } else {
@@ -312,11 +303,10 @@ class App {
   }
 
   /** Removes a provider from this TV, with its lists and everything watched with it. */
-  async removeProvider(id: string, at = Date.now()) {
+  async removeProvider(id: string) {
     const gone = this.providers.find((p) => p.id === id);
     if (!gone || this.player) return;
     await this.saveProviders(this.providers.filter((p) => p.id !== id));
-    this.forgetLogin(gone.provider, at);
     // Its history holds stream URLs, which carry the login.
     for (const name of RECORDS) await backend.storeDelete(recordName(name, id));
     void repo.clearSavedCataloguesFor(gone.provider);
@@ -349,78 +339,6 @@ class App {
     await this.saveProviders(list);
     this.provider = p;
     backend.setAllowCleartext(allow);
-  }
-
-  // ---- Shared logins (opt-in) ----
-
-  /** Removed providers, by sync identity, and when: shared as removals while logins are shared. */
-  private removedLogins: Record<string, number> = {};
-
-  private forgetLogin(p: Provider, at = Date.now()) {
-    const now = Date.now();
-    this.removedLogins = Object.fromEntries(
-      Object.entries({ ...this.removedLogins, [syncIdentity(p)]: at }).filter(([, t]) => now - t < TOMBSTONE_MS),
-    );
-    backend.storeWrite("login-ledger", this.removedLogins, 0);
-  }
-
-  /** Turns sharing provider logins with linked devices on or off, and syncs. */
-  setShareLogins(on: boolean) {
-    this.meta.shareLogins = on;
-    backend.storeWrite("meta", this.meta, 0);
-    void this.syncNow();
-  }
-
-  /** This TV's logins (and removals) to share, by tag. */
-  private ownLogins(keys: Keys): Record<string, SharedLogin> {
-    const out: Record<string, SharedLogin> = {};
-    for (const [identity, at] of Object.entries(this.removedLogins)) out[providerTag(keys, identity)] = { at };
-    for (const saved of this.providers) {
-      const tag = providerTag(keys, syncIdentity(saved.provider));
-      if ((out[tag]?.at ?? -1) <= saved.changedAt) out[tag] = { at: saved.changedAt, provider: saved.provider };
-    }
-    return out;
-  }
-
-  /** Takes in other devices' logins: new providers, newer logins, and removals. Returns whether anything changed. */
-  private async applyLogins(logins: Record<string, SharedLogin>, keys: Keys): Promise<boolean> {
-    let changed = false;
-    for (const [tag, login] of Object.entries(logins)) {
-      const mine = this.providers.find((s) => providerTag(keys, syncIdentity(s.provider)) === tag);
-      if (mine && mine.changedAt >= login.at) continue;
-      const p = login.provider;
-      if (!p) {
-        if (mine) { await this.removeProvider(mine.id, login.at); changed = true; }
-      } else if (mine) {
-        await this.saveProviders(this.providers.map((s) => (s.id === mine.id ? { ...s, provider: p, changedAt: login.at } : s)));
-        if (mine.id === this.activeId) { this.provider = p; backend.setAllowCleartext(p.allowCleartext); }
-        changed = true;
-      } else if ((this.removedLogins[syncIdentity(p)] ?? -1) < login.at) {
-        const saved: SavedProvider = { id: newProviderId(), provider: p, changedAt: login.at };
-        await this.saveProviders([...this.providers, saved]);
-        changed = true;
-        // A TV with no provider yet starts with the first one shared with it.
-        if (!this.activeId) {
-          this.route = { name: "home" };
-          await this.activate(saved);
-        }
-      }
-    }
-    return changed;
-  }
-
-  /**
-   * A TV with no provider yet joins a household and takes the providers shared with it: links with
-   * [code], turns on sharing logins, and signs in with the first one shared.
-   */
-  async joinForLogins(code: string) {
-    this.meta.shareLogins = true;
-    this.meta.syncUnlocked = true;
-    backend.storeWrite("meta", this.meta, 0);
-    await this.startSync(code);
-    if (!this.providers.length) {
-      throw new SyncError("Linked, but no providers were shared yet. On a device that has them, turn on Settings → Sync → Share provider logins, then try again here.");
-    }
   }
 
   async clearSavedData() {
@@ -662,14 +580,13 @@ class App {
    * playback. Each saved provider's records travel in their own section, matched to other devices'
    * by provider tag. The provider in use takes in everything; the others take in progress, My List
    * and removals now, and Continue watching when they're next in use (resolving it needs their
-   * lists). With sharing on, logins travel too, and other devices' providers come in.
+   * lists). Provider logins never travel: each device signs in to its providers itself.
    */
   async syncNow() {
     const config = this.sync;
     if (!config || this.syncStatus.busy || this.player) return;
-    const sharing = !!this.meta.shareLogins;
-    // Without a provider there's nothing to sync, except logins shared with this TV.
-    if (!this.providers.length && !sharing) return;
+    // Without a provider there's nothing to sync.
+    if (!this.providers.length) return;
     this.syncStatus = { ...this.syncStatus, busy: true, error: undefined };
     try {
       const now = Date.now();
@@ -689,7 +606,6 @@ class App {
       const own = {
         at: now,
         sections: Object.fromEntries([...locals].map(([tag, { local }]) => [tag, toParcel(local, now)])),
-        ...(sharing ? { logins: this.ownLogins(keys) } : {}),
       };
       const merged = await syncOnce(backend.syncTransport, config.relay, keys, config.device, own, current, now);
       if (this.sync !== config) return;
@@ -713,8 +629,6 @@ class App {
         this.writeRecords(id, next);
       }
       this.syncStatus = { busy: false, at: Date.now() };
-      // New or changed providers from other devices: their records come in on the next round.
-      if (sharing && merged.logins && (await this.applyLogins(merged.logins, keys))) this.syncSoon();
     } catch (e) {
       this.syncStatus = { ...this.syncStatus, busy: false, error: e instanceof SyncError ? e.message : "Couldn't reach the sync relay." };
       console.warn("Sync failed", e);
