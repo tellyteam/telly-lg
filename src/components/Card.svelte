@@ -30,7 +30,8 @@
       <Art src={image} {title} fit={picture ? "cover" : "contain"} onsize={(r) => (picture = r >= 1.55 && r <= 2.1)} />
     {:else}
       <Art src={image} {title} onfail={() => (broken = true)} />
-      {#if !image || broken || variant === "landscape"}<div class="shade"></div><div class="ttl">{title}</div>{/if}
+      <!-- The title is written on the picture only when there's no picture; it's always below too. -->
+      {#if !image || broken}<div class="shade"></div><div class="ttl">{title}</div>{/if}
     {/if}
   </div>
   {#if badge}<div class="badge">{badge}</div>{/if}

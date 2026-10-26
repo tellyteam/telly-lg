@@ -23,12 +23,6 @@
   // Nothing to pick up yet: the billboard features the newest film, as on the Fire TV app.
   const featured = $derived(newFilms[0]);
 
-  function heroLabel(): string {
-    if (!pick) return "";
-    if (pick.live) return "Live TV";
-    if (P.isFilm(pick)) return "Film";
-    return nextUp ? "Up next" : pickItem?.group ?? "";
-  }
   const openSeries = (s: Series) => app.go({ name: "seriesDetail", series: s });
   const openFilm = (f: Channel) => app.go({ name: "filmDetail", film: f });
   function badge(h: P.LastWatched) {
@@ -45,20 +39,19 @@
 <div class="screen">
   <TopBar />
   {#if pick && pickItem}
+    <!-- The billboard, as on the Fire TV app: what to watch next, its place, and Resume. -->
     <section class="hero">
       <div class="art"><div class="fade"><Art src={pickSeries?.cover ?? pick.art ?? pickItem.logo} title={pick.heading} /></div></div>
       <div class="copy">
-        <div class="eyebrow">{nextUp ? "Up next" : "Pick up where you left off"}</div>
-        <div class="title-xl">{pick.live ? pickItem.name : P.isFilm(pick) ? pickItem.name : pick.heading}</div>
-        <div class="meta"><span>{heroLabel()}</span>{#if !pick.live && !P.isFilm(pick)}<span>{pickItem.name.replace(/^E\d+\s+/, "")}</span>{/if}</div>
-        {#if pickSeries?.plot}<div class="synopsis">{pickSeries.plot}</div>{/if}
+        <div class="eyebrow">{pick.live ? "Last watched" : pick.newEpisodes ? "New episodes" : nextUp ? "Up next" : "Continue watching"}</div>
+        <div class="title-xl">{pick.live || P.isFilm(pick) ? pickItem.name : pick.heading}</div>
+        <div class="meta"><span>{pick.live ? "Live TV" : P.isFilm(pick) ? "Film" : `${pickItem.group} · ${pickItem.name}`}</span></div>
         {#if pickProgress && !pick.live && !P.finished(pickProgress)}
-          <div style="width:300px;margin:12px 0 16px"><div class="progress"><i style:width="{P.fraction(pickProgress) * 100}%"></i></div>
-            <div class="meta" style="margin-top:6px;font-size:12px">{Math.round(pickProgress[0] / 60000)} of {Math.round(pickProgress[1] / 60000)} min</div></div>
-        {:else}<div style="height:16px"></div>{/if}
+          <div class="hero-progress"><div class="progress"><i style:width="{P.fraction(pickProgress) * 100}%"></i></div></div>
+        {/if}
         <div class="btns">
-          <button class="btn primary" onclick={() => app.resume(pick)}>▶ {pick.live ? "Watch" : nextUp ? "Play next episode" : pickProgress && P.resumePosition(pickProgress) ? "Resume" : "Play"}</button>
-          {#if pickSeries}<button class="btn" onclick={() => openSeries(pickSeries)}>More info</button>{/if}
+          <button class="btn primary" onclick={() => app.resume(pick)}>▶ {pick.live ? "Watch" : pickProgress && P.resumePosition(pickProgress) ? "Resume" : "Play"}</button>
+          {#if pickSeries}<button class="btn" onclick={() => openSeries(pickSeries)}>Episodes</button>{/if}
         </div>
       </div>
     </section>

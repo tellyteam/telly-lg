@@ -288,7 +288,8 @@ html.tv .topbar .search-box, html.tv .topbar .btn { display: none; }
 html.tv .screen { padding-bottom: 40px; }
 
 /* Billboard (Home) and detail pages: artwork two-thirds across, fading into the page. */
-html.tv .hero { min-height: 286px; height: 286px; margin-top: 0; align-items: flex-start; }
+html.tv .hero { min-height: 286px; margin-top: 0; align-items: flex-start; padding-bottom: 24px; }
+.hero-progress { width: 240px; margin-top: 14px; }
 html.tv .hero .art { width: 66%; }
 html.tv .hero .copy, html.tv .detail-hero .copy { padding: 40px 0 0 var(--pad); width: 430px; }
 html.tv .detail-hero { min-height: 0; margin-top: 0; padding-bottom: 6px; }

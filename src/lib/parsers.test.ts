@@ -190,3 +190,22 @@ describe("stream addresses", () => {
     }
   });
 });
+
+describe("compact catalogues", () => {
+  it("unpack to exactly what the provider's answer parses to, without saving any stream address", async () => {
+    const C = await import("./compact");
+    const cats = new Map([["1", "Drama"], ["2", "Kids"]]);
+    const films = X.films(server, "me", "p@ss", cats, [
+      { stream_id: 10, name: "A", category_id: "1", stream_icon: "https://i.example/a.jpg", container_extension: "mkv", added: "1700000000" },
+      { stream_id: 11, name: "B", category_id: "2", container_extension: "mp4" },
+    ]);
+    const groups = groupInOrder(films, [...cats.values()], (f) => f.group);
+    const packed = C.packChannels(groups);
+    expect(packed).not.toContain("p%40ss");
+    expect(packed).not.toContain("http://tv.example");
+    expect(C.unpackChannels(packed, server, "movie", "me", "p@ss")).toEqual(groups);
+    const series = groupInOrder(X.series(cats, [{ series_id: 5, name: "S", category_id: "1", cover: "c.jpg", plot: "P", last_modified: "1700000001" }]), [...cats.values()], (s) => s.group);
+    expect(C.unpackSeries(C.packSeries(series))).toEqual(series);
+    expect(C.unpackChannels("not json", server, "movie", "me", "p")).toBeUndefined();
+  });
+});

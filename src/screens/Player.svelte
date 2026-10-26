@@ -87,7 +87,9 @@
       if (video.readyState >= 1) seek(); else video.addEventListener("loadedmetadata", seek, { once: true });
     }
     // hls.js can reset the source while it starts, which cancels this play: try again once it's ready.
-    video.play().catch(() => video.addEventListener("canplay", () => { if (id === loadId) video.play().catch(() => {}); }, { once: true }));
+    // (The player may have closed by the time it answers.)
+    const v = video;
+    v.play().catch(() => { if (id === loadId && v?.isConnected) v.addEventListener("canplay", () => { if (id === loadId) v.play().catch(() => {}); }, { once: true }); });
     clearTimeout(watchdog);
     watchdog = setTimeout(() => {
       if (id === loadId && !error && video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -310,11 +312,19 @@
     if (handled) e.preventDefault();
   }
 
-  // ---- Aspect as a scale on the fitted picture ----
+  // ---- Aspect: the picture's size and place on screen ----
 
-  const scale = $derived.by(() => {
+  /**
+   * The fitted picture scaled for the aspect, centred. Set as the video's own size and position,
+   * not a CSS transform: a TV draws video on its own layer, placed by the element's box, and ignores
+   * transforms. Before the video's size is known, it fills the screen.
+   */
+  const frame = $derived.by(() => {
     const [fw, fh] = P.fitted(box.vw, box.vh, box.w, box.h);
-    return P.aspectScale(aspect, fw, fh, box.w, box.h);
+    if (!fw || !fh) return null;
+    const [sx, sy] = P.aspectScale(aspect, fw, fh, box.w, box.h);
+    const w = fw * sx, h = fh * sy;
+    return { left: (box.w - w) / 2, top: (box.h - h) / 2, w, h };
   });
 
   function measure() {
@@ -366,7 +376,8 @@
 <div class="player" data-focus-scope tabindex="-1" class:awake={awake || !playing || !!error} onmousemove={wake} bind:this={stage}>
   <!-- svelte-ignore a11y_media_has_caption -->
   <video bind:this={video} playsinline
-    style:transform="scale({scale[0]}, {scale[1]})"
+    class:framed={!!frame} style:left={frame ? `${frame.left}px` : null} style:top={frame ? `${frame.top}px` : null}
+    style:width={frame ? `${frame.w}px` : null} style:height={frame ? `${frame.h}px` : null}
     onplay={() => (playing = true)} onpause={() => (playing = false)}
     onwaiting={() => (waiting = true)} onplaying={() => (waiting = false)} oncanplay={() => (waiting = false)}
     {ontimeupdate} {onended} onloadedmetadata={() => { measure(); readTracks(); }} onresize={measure}
@@ -475,10 +486,12 @@
 <style>
   .player { position: fixed; inset: 0; z-index: 30; background: #000; cursor: none; overflow: hidden; }
   .player.awake { cursor: default; }
-  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform-origin: center; transition: transform .2s; }
+  video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
+  /* Sized and placed for the aspect (see frame): the picture fills exactly that box. */
+  video.framed { object-fit: fill; }
   .ui { opacity: 0; transition: opacity .25s; pointer-events: none; }
   .awake .ui { opacity: 1; pointer-events: auto; }
-  .ov-top { position: absolute; left: 0; right: 0; top: 0; padding: 18px 34px 60px 90px; display: flex; gap: 16px; align-items: flex-start; background: linear-gradient(180deg, rgba(7,10,15,.8), transparent); }
+  .ov-top { position: absolute; left: 0; right: 0; top: 0; padding: 18px 34px 60px 34px; display: flex; gap: 16px; align-items: flex-start; background: linear-gradient(180deg, rgba(7,10,15,.8), transparent); }
   .back { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.1); display: grid; place-items: center; cursor: pointer; font-size: 20px; border: 0; color: #fff; flex: none; }
   .back:hover { background: rgba(255,255,255,.2); }
   .t { font-size: 22px; font-weight: 600; } .s { color: var(--muted); }

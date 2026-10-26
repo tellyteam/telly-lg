@@ -1,4 +1,5 @@
 import * as cache from "./cache";
+import * as C from "./compact";
 import { getJson, getText } from "./backend";
 import * as guide from "./guide";
 import { parseM3u } from "./m3u";
@@ -18,6 +19,16 @@ class XtreamSession {
   constructor(readonly p: Extract<Provider, { kind: "xtream" }>, readonly source: Source) {
     this.server = X.serverUrl(p.server);
     this.scopeP = cache.scope("xtream", this.server.toString(), p.username);
+  }
+
+  /** The catalogue saved as telly uses it (see compact.ts), if there is one. */
+  async compact(name: string): Promise<string | undefined> {
+    return (await cache.read(await this.scopeP, `compact-${name}`))?.text;
+  }
+
+  /** Saves [pack]'s output once the screen has updated: making it takes a moment on a TV. */
+  saveCompact(name: string, pack: () => string) {
+    setTimeout(() => void this.scopeP.then((scope) => cache.write(scope, `compact-${name}`, pack())), 0);
   }
 
   api(action?: string, extra?: Record<string, string>) {
@@ -73,12 +84,19 @@ export async function liveGroups(p: Provider, source: Source): Promise<Group<Cha
   let groups: Group<Channel>[];
   if (p.kind === "xtream") {
     const x = new XtreamSession(p, source);
+    if (source === "cache") {
+      const packed = await x.compact("live");
+      const unpacked = packed && C.unpackChannels(packed, x.server, "live", p.username, p.password);
+      if (unpacked) return unpacked;
+    }
     const format = await x.format();
     const cats = format && (await x.categories("get_live_categories"));
     if (!format || !cats) return undefined;
     const channels = await x.list("get_live_streams", (j) => X.liveChannels(x.server, p.username, p.password, format, cats, j), undefined, undefined, true);
     if (!channels) return undefined;
     groups = groupInOrder(channels, [...cats.values()], (c) => c.group);
+    const done = groups;
+    x.saveCompact("live", () => C.packChannels(done));
   } else {
     const url = p.url.trim();
     const scope = await cache.scope("m3u", url);
@@ -98,19 +116,35 @@ export async function liveGroups(p: Provider, source: Source): Promise<Group<Cha
 export async function filmGroups(p: Provider, source: Source): Promise<Group<Channel>[] | undefined> {
   if (p.kind !== "xtream") return [];
   const x = new XtreamSession(p, source);
+  if (source === "cache") {
+    const packed = await x.compact("films");
+    const unpacked = packed && C.unpackChannels(packed, x.server, "movie", p.username, p.password);
+    if (unpacked) return unpacked;
+  }
   const cats = await x.categories("get_vod_categories");
   if (!cats) return undefined;
   const films = await x.list("get_vod_streams", (j) => X.films(x.server, p.username, p.password, cats, j), undefined, undefined, true);
-  return films && groupInOrder(films, [...cats.values()], (f) => f.group);
+  if (!films) return undefined;
+  const groups = groupInOrder(films, [...cats.values()], (f) => f.group);
+  x.saveCompact("films", () => C.packChannels(groups));
+  return groups;
 }
 
 export async function seriesGroups(p: Provider, source: Source): Promise<Group<Series>[] | undefined> {
   if (p.kind !== "xtream") return [];
   const x = new XtreamSession(p, source);
+  if (source === "cache") {
+    const packed = await x.compact("series");
+    const unpacked = packed && C.unpackSeries(packed);
+    if (unpacked) return unpacked;
+  }
   const cats = await x.categories("get_series_categories");
   if (!cats) return undefined;
   const series = await x.list("get_series", (j) => X.series(cats, j), undefined, undefined, true);
-  return series && groupInOrder(series, [...cats.values()], (s) => s.group);
+  if (!series) return undefined;
+  const groups = groupInOrder(series, [...cats.values()], (s) => s.group);
+  x.saveCompact("series", () => C.packSeries(groups));
+  return groups;
 }
 
 export async function seriesData(p: Provider, series: Series, source: Source): Promise<SeriesData | undefined> {
