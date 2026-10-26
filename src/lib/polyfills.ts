@@ -1,4 +1,43 @@
-/** Small fallbacks for older LG TVs (webOS 6 runs Chromium 79), for what telly and Svelte use. */
+/**
+ * Small fallbacks for older LG TVs, for what telly and Svelte use: webOS 5 (2020) runs Chromium 68
+ * and webOS 6 (2021) Chromium 79. The build lowers newer syntax for Chromium 68 (vite.config.ts).
+ */
+
+// Chromium 71. First: the fallbacks below, and Svelte, use it.
+if (typeof globalThis === "undefined") (window as unknown as { globalThis: Window }).globalThis = window;
+
+function define(target: object, name: string, value: unknown) {
+  if (!(name in target)) Object.defineProperty(target, name, { configurable: true, writable: true, value });
+}
+
+// Chromium 73.
+define(Object, "fromEntries", (entries: Iterable<readonly [PropertyKey, unknown]>) => {
+  const o: Record<PropertyKey, unknown> = {};
+  for (const [k, v] of entries) o[k] = v;
+  return o;
+});
+define(String.prototype, "matchAll", function* (this: string, re: RegExp) {
+  const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
+  for (let m; (m = g.exec(this)); ) {
+    yield m;
+    if (m[0] === "") g.lastIndex++;
+  }
+});
+// Chromium 69.
+define(Array.prototype, "flat", function (this: unknown[], depth = 1): unknown[] {
+  return depth < 1 ? this.slice() : this.reduce<unknown[]>((all, v) => all.concat(Array.isArray(v) ? (v as unknown[]).flat(depth - 1) : [v]), []);
+});
+define(Array.prototype, "flatMap", function (this: unknown[], fn: (v: unknown, i: number, a: unknown[]) => unknown, self?: unknown) {
+  return this.map(fn, self).flat();
+});
+// Chromium 71 and 76.
+define(globalThis, "queueMicrotask", (fn: () => void) => void Promise.resolve().then(fn));
+define(Promise, "allSettled", (all: Iterable<unknown>) =>
+  Promise.all(Array.from(all, (p) => Promise.resolve(p).then(
+    (value) => ({ status: "fulfilled", value }),
+    (reason) => ({ status: "rejected", reason }),
+  ))));
+
 
 if (!Array.prototype.at) {
   Object.defineProperty(Array.prototype, "at", {

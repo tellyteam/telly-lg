@@ -50,8 +50,8 @@ export default defineConfig(({ mode }) => mode === "webos" ? {
   base: "./",
   build: {
     outDir: "dist-webos",
-    // webOS 6 (2021 TVs) runs Chromium 79.
-    target: ["chrome79"],
+    // webOS 5 (2020 TVs) runs Chromium 68, webOS 6 (2021) Chromium 79. Newer APIs: lib/polyfills.ts.
+    target: ["chrome68"],
     modulePreload: false,
     cssCodeSplit: false,
     chunkSizeWarningLimit: 4000,

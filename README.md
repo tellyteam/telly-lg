@@ -1,6 +1,6 @@
 # telly for LG TVs
 
-A small, fast IPTV player for LG smart TVs (webOS 6 and later), driven entirely by the remote.
+A small, fast IPTV player for LG smart TVs (webOS 5 and later: 2020 TVs onwards), driven entirely by the remote.
 Bring your own provider (Xtream Codes or an M3U playlist); telly gives you a clean way to watch it.
 
 - **Home** with Pick up where you left off, Continue watching, My List and recently added titles
@@ -48,7 +48,7 @@ To update, install the new `.ipk` the same way; everything you've set up is kept
 ## How it works
 
 The interface is Svelte and TypeScript, built as one classic script for the TV's web engine
-(Chromium 79 on webOS 6). A packaged webOS app may fetch from any address, so the TV talks to the
+(Chromium 68 on webOS 5, 79 on webOS 6; `src/lib/polyfills.ts` fills in what's newer). A packaged webOS app may fetch from any address, so the TV talks to the
 provider directly. Playback uses the TV's own player whenever it says it can play a stream, and
 [hls.js](https://github.com/video-dev/hls.js) or [mpegts.js](https://github.com/xqq/mpegts.js)
 otherwise. The remote moves focus spatially (`src/lib/tv.ts`).
