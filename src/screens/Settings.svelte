@@ -1,7 +1,7 @@
 <script lang="ts">
   import TopBar from "../components/TopBar.svelte";
   import { isWebOS } from "../lib/backend";
-  import { ago, app, DEFAULT_RELAY } from "../lib/state.svelte";
+  import { ago, app } from "../lib/state.svelte";
   import { formatCode } from "../lib/sync/crypto";
   import { syncLink } from "../lib/sync/link";
   import QrCode from "../components/QrCode.svelte";
@@ -12,7 +12,6 @@
 
   let joining = $state(false);
   let joinCode = $state("");
-  let relay = $state(DEFAULT_RELAY);
   let showCode = $state(true);
   let linking = $state(false);
   let syncError = $state<string | null>(null);
@@ -21,7 +20,7 @@
     linking = true;
     syncError = null;
     try {
-      await app.startSync(code, relay.trim());
+      await app.startSync(code);
       joining = false;
       joinCode = "";
       showCode = true;
@@ -86,19 +85,17 @@
         <div class="line"><div>Link another device<small>Scan the QR code with your iPad's camera, or enter the code in Settings → Sync on your Fire TV or iPad. Keep it private: anyone with it can see what you've watched.</small></div>
           <button class="btn small" onclick={() => (showCode = !showCode)}>{showCode ? "Hide code" : "Show code"}</button></div>
         {#if showCode}
-          <div class="line sync-link"><QrCode text={syncLink(app.sync.code, app.sync.relay, DEFAULT_RELAY)} /><code class="sync-code">{formatCode(app.sync.code)}</code></div>
+          <div class="line sync-link"><QrCode text={syncLink(app.sync.code)} /><code class="sync-code">{formatCode(app.sync.code)}</code></div>
         {/if}
         <div class="line"><div>Provider logins are never shared<small>Sign in on each device.</small></div></div>
       {:else}
         <div class="line"><div>Pick up where you left off on your other devices<small>Shares progress, Continue watching and My List, end-to-end encrypted. Provider logins are never shared.</small></div>
-          <div class="btns"><button class="btn small primary" disabled={linking || !relay.trim()} onclick={() => link()}>Start syncing</button>
+          <div class="btns"><button class="btn small primary" disabled={linking} onclick={() => link()}>Start syncing</button>
             <button class="btn small" disabled={linking} onclick={() => (joining = !joining)}>I have a code</button></div></div>
         {#if joining}
           <div class="line"><div class="field" style="flex:1"><input placeholder="ABCD-EFGH-JKMN-PQRS" bind:value={joinCode} maxlength="19" spellcheck="false" autocomplete="off" /></div>
-            <button class="btn small primary" disabled={linking || !joinCode.trim() || !relay.trim()} onclick={() => link(joinCode)}>{linking ? "Linking…" : "Link"}</button></div>
+            <button class="btn small primary" disabled={linking || !joinCode.trim()} onclick={() => link(joinCode)}>{linking ? "Linking…" : "Link"}</button></div>
         {/if}
-        <div class="line"><div>Relay<small>Only sealed data passes through it. Change this only if you run your own.</small></div>
-          <div class="field" style="width:320px"><input placeholder="https://…" bind:value={relay} spellcheck="false" autocomplete="off" /></div></div>
         {#if syncError}<div class="notice">{syncError}</div>{/if}
       {/if}
     </div>

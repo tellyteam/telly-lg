@@ -58,8 +58,8 @@ export interface SyncConfig {
   relay: string;
 }
 
-/** The relay telly uses unless you run your own (see telly-sync). */
-export const DEFAULT_RELAY = "https://telly-sync.tellyteam.workers.dev";
+/** telly's relay: sync always uses it (a link saved with another one is moved to it). */
+export const RELAY = "https://telly-sync.tellyteam.workers.dev";
 
 /** Never more often than this when the window regains focus. */
 const SYNC_GAP_MS = 60_000;
@@ -542,11 +542,10 @@ class App {
   }
 
   /** Starts a new household with a fresh code, or joins one with [code]. */
-  async startSync(code?: string, relay = DEFAULT_RELAY) {
+  async startSync(code?: string) {
     const normal = code === undefined ? newCode() : normaliseCode(code);
     if (!normal) throw new SyncError("That code isn't right: it's 16 letters and numbers, like ABCD-EFGH-JKMN-PQRS.");
-    if (!relay) throw new SyncError("No sync relay is set.");
-    const config: SyncConfig = { code: normal, device: this.sync?.device ?? newDeviceId(), relay };
+    const config: SyncConfig = { code: normal, device: this.sync?.device ?? newDeviceId(), relay: RELAY };
     await backend.secretSet("sync", JSON.stringify(config));
     this.sync = config;
     await this.syncNow();
@@ -687,7 +686,7 @@ class App {
 function parseSync(text: string | null): SyncConfig | null {
   try {
     const c = text ? (JSON.parse(text) as SyncConfig) : null;
-    return c && normaliseCode(c.code) && /^[0-9a-f]{16}$/.test(c.device) && c.relay ? c : null;
+    return c && normaliseCode(c.code) && /^[0-9a-f]{16}$/.test(c.device) ? { ...c, relay: RELAY } : null;
   } catch {
     return null;
   }

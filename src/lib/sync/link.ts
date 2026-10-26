@@ -1,20 +1,13 @@
 /**
- * The address a QR code carries to link another device (telly-sync PROTOCOL.md):
- * `telly://sync?code=…`, plus `&relay=…` only for a relay other than telly's own.
+ * The address a QR code carries to link another device: `telly://sync?code=…`. Sync always uses
+ * telly's relay, so a `relay` an older app added is ignored.
  */
 import { normaliseCode } from "./crypto";
 
-export function syncLink(code: string, relay: string, defaultRelay: string): string {
-  const base = `telly://sync?code=${code}`;
-  return relay.replace(/\/+$/, "") === defaultRelay ? base : `${base}&relay=${encodeURIComponent(relay)}`;
-}
+export const syncLink = (code: string) => `telly://sync?code=${code}`;
 
-/** The code and relay from a link, or null if it isn't one. */
-export function parseSyncLink(text: string, defaultRelay: string): { code: string; relay: string } | null {
+/** The code from a link, or null if it isn't one. */
+export function parseSyncLink(text: string): string | null {
   const m = text.trim().match(/^telly:\/\/sync\?(.*)$/i);
-  if (!m) return null;
-  const params = new URLSearchParams(m[1]);
-  const code = normaliseCode(params.get("code") ?? "");
-  const relay = params.get("relay") ?? defaultRelay;
-  return code && relay.startsWith("https://") ? { code, relay } : null;
+  return m ? normaliseCode(new URLSearchParams(m[1]).get("code") ?? "") : null;
 }
