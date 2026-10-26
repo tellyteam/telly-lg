@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "../components/Icon.svelte";
   import { onDestroy, tick } from "svelte";
   import Art from "../components/Art.svelte";
   import { isWebOS } from "../lib/backend";
@@ -157,7 +158,7 @@
   </div>
 
   <div class="col chlist" bind:this={list}>
-    <div class="filter"><label class="search-box"><span>⌕</span><input bind:this={filterInput} bind:value={filter} placeholder="Filter {category === ALL ? 'all channels' : category}" spellcheck="false" />
+    <div class="filter"><label class="search-box"><span><Icon name="search" /></span><input bind:this={filterInput} bind:value={filter} placeholder="Filter {category === ALL ? 'all channels' : category}" spellcheck="false" />
       <kbd>⌘F</kbd></label></div>
     {#each channels.slice(0, shown) as c, i (c.id)}
       {@const fav = app.isFavourite("live", c.id)}
@@ -184,7 +185,7 @@
           <span class="live-dot">LIVE</span>
           {#if miniLoading && !miniError}<div class="msg"><div class="spinner"></div></div>{/if}
           {#if miniError}<div class="msg">{miniError}</div>{/if}
-          <span class="expand">⤢ Full screen · double-click or Enter</span>
+          <span class="expand"><Icon name="expand" /> Full screen · double-click or Enter</span>
         {:else}
           <div class="msg"><span><b style="font-size:28px">▶</b><br />Click to preview · Enter for full screen</span></div>
         {/if}

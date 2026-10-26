@@ -4,7 +4,10 @@
  * rest of telly already understands (Escape, PageUp/PageDown, space…).
  */
 
-const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
+// Not things marked tabindex="-1": the rows' scroll arrows are for a mouse, and invisible on a TV.
+// (Spelled out: :is() needs Chromium 88.)
+const FOCUSABLE = ["button:not([disabled])", "a[href]", "input:not([disabled])", "select", "textarea", "[tabindex]"]
+  .map((s) => `${s}:not([tabindex="-1"])`).join(", ");
 
 /** webOS remote key codes, as the keys the app already handles. */
 const KEYS: Record<number, string> = {
@@ -117,7 +120,11 @@ export function startTv(suspendedBase: () => boolean) {
     const active = document.activeElement as HTMLElement | null;
     const from = active && active !== document.body ? active.getBoundingClientRect() : new DOMRect(0, 0, 0, 0);
     const scope = active?.closest<HTMLElement>("[data-focus-scope]") ?? document;
-    const next = nearest(from, dir, focusables(scope).filter((el) => el !== active));
+    let candidates = focusables(scope).filter((el) => el !== active);
+    // Up and Down stay on the page: past its last row they stop, rather than land in the side menu.
+    // Left (from the first thing in a row) is the way to the menu.
+    if ((dir === "ArrowUp" || dir === "ArrowDown") && active && !active.closest(".rail")) candidates = candidates.filter((el) => !el.closest(".rail"));
+    const next = nearest(from, dir, candidates);
     e.preventDefault();
     if (next) focus(next);
   }, true);

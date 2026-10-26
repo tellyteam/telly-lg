@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "./Icon.svelte";
   import type { Snippet } from "svelte";
   import { app } from "../lib/state.svelte";
 
@@ -8,6 +9,6 @@
 <div class="topbar">
   {@render children?.()}
   {#if search}
-    <button class="search-box" onclick={() => app.go({ name: "search" })}><span class="icon">⌕</span> <span class="label">{placeholder}</span> <kbd>⌘K</kbd></button>
+    <button class="search-box" onclick={() => app.go({ name: "search" })}><span class="icon"><Icon name="search" /></span> <span class="label">{placeholder}</span> <kbd>⌘K</kbd></button>
   {/if}
 </div>

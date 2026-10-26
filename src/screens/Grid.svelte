@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "../components/Icon.svelte";
   import Card from "../components/Card.svelte";
   import LazyGrid from "../components/LazyGrid.svelte";
   import TopBar from "../components/TopBar.svelte";
@@ -26,7 +27,7 @@
 <div class="screen">
   <TopBar search={false}>
     <button class="btn small" onclick={() => app.goBack() || app.go({ name: kind })}>‹ {kind === "films" ? "Films" : "Series"}</button>
-    <label class="search-box"><span>⌕</span><input bind:value={filter} placeholder="Filter {group}" spellcheck="false" /></label>
+    <label class="search-box"><span><Icon name="search" /></span><input bind:value={filter} placeholder="Filter {group}" spellcheck="false" /></label>
   </TopBar>
   <div class="page-head"><h2>{group}</h2><span class="sub">{items.length.toLocaleString()} {kind}</span></div>
   <div class="chips">

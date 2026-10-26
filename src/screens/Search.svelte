@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "../components/Icon.svelte";
   import Card from "../components/Card.svelte";
   import Row from "../components/Row.svelte";
   import { playChannel } from "../lib/actions";
@@ -21,7 +22,7 @@
 
 <div class="screen">
   <div class="topbar"></div>
-  <label class="big-input">⌕ <input bind:this={input} bind:value={query} placeholder="Search films, series and channels" spellcheck="false" autocomplete="off" />
+  <label class="big-input"><Icon name="search" /> <input bind:this={input} bind:value={query} placeholder="Search films, series and channels" spellcheck="false" autocomplete="off" />
     <kbd>Esc</kbd></label>
   {#if !debounced.trim()}
     <div class="empty">Type to search every film, series and channel. Tip: press <kbd>⌘K</kbd> or <kbd>/</kbd> from anywhere.</div>
