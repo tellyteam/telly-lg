@@ -388,7 +388,7 @@
     </div>
   {/if}
 
-  <div class="ui">
+  <div class="ui" class:prompting={showNext && !!nextItem && !awake}>
     <div class="ov-top">
       <button class="back" aria-label="Back" onclick={close}>‹</button>
       <div><div class="t">{title}</div><div class="s">{subtitle}</div></div>
@@ -510,8 +510,9 @@
   .nextp:hover { background: rgba(16,20,24,.95); }
   .nextp .x { position: absolute; top: 6px; right: 8px; color: var(--muted); }
   .player:not(.awake) .nextp { opacity: .9; pointer-events: auto; }
-  .player:not(.awake) .ui:has(.nextp) { opacity: 1; }
-  .player:not(.awake) .ui:has(.nextp) > :not(.nextp) { opacity: 0; }
+  /* A class, not :has(): TVs before Chromium 105 drop the rule. */
+  .player:not(.awake) .ui.prompting { opacity: 1; }
+  .player:not(.awake) .ui.prompting > :not(.nextp) { opacity: 0; }
   .adjust { position: absolute; left: 50%; top: 90px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 20px; border-radius: 14px; background: rgba(20,26,36,.92); border: 1px solid rgba(79,195,247,.4); text-align: center; }
   .toast { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); font-size: 22px; font-weight: 700; padding: 12px 22px; border-radius: 14px; background: rgba(10,14,20,.7); pointer-events: none; z-index: 2; }
   .failure { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 40px; z-index: 3; }

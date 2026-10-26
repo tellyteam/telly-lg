@@ -253,6 +253,8 @@ kbd { font: 11px ui-monospace, Menlo, Consolas, monospace; background: rgba(255,
 
 /* ---- LG TVs: sized for the sofa, and the remote's focus always visible ---- */
 html.tv { zoom: 1.45; cursor: default; }
+/* No scroll bars on a TV: the remote scrolls, and the page moves with focus. */
+html.tv ::-webkit-scrollbar { display: none; }
 html.tv :focus { outline: none; }
 html.tv :focus-visible, html.tv .card:focus, html.tv button:focus, html.tv [tabindex]:focus, html.tv input:focus {
   outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 10px; }

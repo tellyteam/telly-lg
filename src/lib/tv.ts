@@ -133,7 +133,8 @@ export function startTv(suspendedBase: () => boolean) {
   window.addEventListener("focusin", (e) => {
     const t = e.target as HTMLElement;
     if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
-      setTimeout(() => t.scrollIntoView({ block: "start", behavior: "smooth" }), 50);
+      // The whole field, so its label shows too.
+      setTimeout(() => (t.closest(".field") ?? t).scrollIntoView({ block: "start", behavior: "smooth" }), 50);
     }
   });
 

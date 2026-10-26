@@ -28,6 +28,17 @@ interface CssRule {
   append(decl: { prop: string; value: string }): CssRule;
 }
 
+/**
+ * Svelte scopes nested selectors as `.a .b:where(.svelte-x)`, and TVs before Chromium 88 drop any
+ * rule with :where(). For the TV build it becomes a plain class (a little more specific, the same match).
+ */
+const unwrapWhere = {
+  postcssPlugin: "telly-unwrap-where",
+  Rule(rule: { selector: string }) {
+    if (rule.selector.includes(":where(")) rule.selector = rule.selector.replace(/:where\((\.svelte-[\w-]+)\)/g, "$1");
+  },
+};
+
 const flexGap = {
   postcssPlugin: "telly-flex-gap",
   Rule(rule: CssRule) {
@@ -45,7 +56,7 @@ const flexGap = {
 
 export default defineConfig(({ mode }) => mode === "webos" ? {
   plugins: [svelte(), classicScript()],
-  css: { postcss: { plugins: [flexGap] } },
+  css: { postcss: { plugins: [unwrapWhere, flexGap] } },
   define: { __APP_VERSION__: JSON.stringify(version) },
   base: "./",
   build: {
