@@ -63,9 +63,39 @@ function focusables(root: ParentNode): HTMLElement[] {
     .filter(visible);
 }
 
+/** The nearest ancestor that scrolls in [axis]. */
+function scroller(el: HTMLElement, axis: "x" | "y"): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const style = getComputedStyle(p);
+    const overflow = axis === "x" ? style.overflowX : style.overflowY;
+    if ((overflow === "auto" || overflow === "scroll") && (axis === "x" ? p.scrollWidth > p.clientWidth : p.scrollHeight > p.clientHeight)) return p;
+  }
+  return null;
+}
+
+/**
+ * Moves focus to [el] and brings it into view a section at a time, as the Fire TV app does: in a
+ * row, about a card's width of room stays ahead (22%) and the first card keeps the page margin;
+ * down the page, the whole row shows, heading and all, and the billboard brings back the top.
+ */
 function focus(el: HTMLElement) {
   el.focus({ preventScroll: true });
-  el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+  const track = el.closest<HTMLElement>(".track, .chips");
+  if (track && scroller(el, "x") === track) {
+    const t = track.getBoundingClientRect(), r = el.getBoundingClientRect();
+    const pad = parseFloat(getComputedStyle(track).paddingLeft) || 0, ahead = t.width * 0.22;
+    let dx = 0;
+    if (r.right > t.right - ahead) dx = r.right - (t.right - ahead);
+    else if (r.left < t.left + pad) dx = r.left - (t.left + pad);
+    if (dx) track.scrollBy({ left: dx, behavior: "smooth" });
+  }
+  const page = scroller(el, "y");
+  if (!page) return el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+  if (el.closest(".hero")) return page.scrollTo({ top: 0, behavior: "smooth" });
+  const section = el.closest<HTMLElement>(".row, .detail-hero, .chips, .eps") ?? el;
+  const v = page.getBoundingClientRect(), r = section.getBoundingClientRect();
+  if (r.top < v.top) page.scrollBy({ top: r.top - v.top, behavior: "smooth" });
+  else if (r.bottom > v.bottom) page.scrollBy({ top: Math.min(r.bottom - v.bottom, r.top - v.top), behavior: "smooth" });
 }
 
 /** Puts focus on the first thing in [root] when nothing has it (a new screen opened). */
@@ -123,8 +153,14 @@ export function startTv(suspendedBase: () => boolean) {
     let candidates = focusables(scope).filter((el) => el !== active);
     // Up and Down stay on the page: past its last row they stop, rather than land in the side menu.
     // Left (from the first thing in a row) is the way to the menu.
-    if ((dir === "ArrowUp" || dir === "ArrowDown") && active && !active.closest(".rail")) candidates = candidates.filter((el) => !el.closest(".rail"));
-    const next = nearest(from, dir, candidates);
+    // Up and Down in the side menu stay in it, too.
+    if ((dir === "ArrowUp" || dir === "ArrowDown") && active) {
+      const inRail = !!active.closest(".rail");
+      candidates = candidates.filter((el) => !!el.closest(".rail") === inRail);
+    }
+    let next = nearest(from, dir, candidates);
+    // Into the side menu: always its current page's item, not whichever is level with the card.
+    if (next?.closest(".rail") && !active?.closest(".rail")) next = document.querySelector<HTMLElement>(".rail .nav.current") ?? next;
     e.preventDefault();
     if (next) focus(next);
   }, true);

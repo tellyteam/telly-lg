@@ -39,6 +39,46 @@ const unwrapWhere = {
   },
 };
 
+/**
+ * CSS min(), max() and clamp() need Chromium 79 (webOS 5 runs 68): each such value gets a plain
+ * fallback before it, which older TVs use and newer ones override. The fallback is the function's
+ * first fixed (px) argument, or for clamp() its preferred value when that's fixed.
+ */
+const MATH = /(?<![\w-])(min|max|clamp)\(([^()]*)\)/;
+function mathFallback(value: string): string {
+  let v = value;
+  for (let m = v.match(MATH); m; m = v.match(MATH)) {
+    const args = m[2].split(",").map((a) => a.trim());
+    const fixed = args.filter((a) => /^-?[\d.]+px$/.test(a));
+    const pick = m[1] === "clamp" && fixed.includes(args[1]) ? args[1] : fixed[0] ?? args[0];
+    v = v.replace(m[0], pick);
+  }
+  return v;
+}
+const mathFallbacks = {
+  postcssPlugin: "telly-math-fallbacks",
+  Declaration(decl: { prop: string; value: string; cloneBefore(o: object): unknown; prev(): { type?: string; prop?: string } | undefined }) {
+    if (!MATH.test(decl.value)) return;
+    const before = decl.prev();
+    if (before?.type === "decl" && before.prop === decl.prop) return; // already has one
+    decl.cloneBefore({ value: mathFallback(decl.value) });
+  },
+};
+
+/** Fails the TV build on CSS webOS 5 (Chromium 68) can't read, so it can't creep back in. */
+const tvCheck = {
+  postcssPlugin: "telly-tv-check",
+  Rule(rule: { selector: string }) {
+    const bad = rule.selector.match(/:(is|where|has)\(/);
+    if (bad) throw new Error(`CSS for older TVs: "${rule.selector}" uses :${bad[1]}(), which Chromium 68 drops`);
+  },
+  Declaration(decl: { prop: string; value: string }) {
+    if (decl.prop === "aspect-ratio" || /mask-composite/.test(decl.prop)) {
+      throw new Error(`CSS for older TVs: ${decl.prop} doesn't work on Chromium 68; size it, or use one mask layer`);
+    }
+  },
+};
+
 const flexGap = {
   postcssPlugin: "telly-flex-gap",
   Rule(rule: CssRule) {
@@ -56,7 +96,7 @@ const flexGap = {
 
 export default defineConfig(({ mode }) => mode === "webos" ? {
   plugins: [svelte(), classicScript()],
-  css: { postcss: { plugins: [unwrapWhere, flexGap] } },
+  css: { postcss: { plugins: [unwrapWhere, mathFallbacks, flexGap, tvCheck] } },
   define: { __APP_VERSION__: JSON.stringify(version) },
   base: "./",
   build: {

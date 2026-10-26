@@ -26,7 +26,7 @@
 <div class="screen">
   <TopBar search={false}><button class="btn small" onclick={() => app.goBack() || app.go({ name: "films" })}>‹ Back</button></TopBar>
   <section class="detail-hero">
-    <div class="art"><Art src={details?.backdrop ?? film.logo} title={film.name} /></div>
+    <div class="art"><div class="fade"><Art src={details?.backdrop ?? film.logo} title={film.name} /></div></div>
     <div class="copy">
       <div class="eyebrow">Film · {film.group}</div>
       <div class="title-xl">{film.name}</div>

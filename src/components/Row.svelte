@@ -9,6 +9,7 @@
 <section class="row">
   <h3>{title}{#if onSeeAll}<button onclick={onSeeAll}>See all ›</button>{/if}</h3>
   <button class="arrow l" aria-label="Scroll left" tabindex="-1" onclick={() => scroll(-1)}>‹</button>
-  <div class="track" bind:this={track}>{@render children()}</div>
+  <div class="track" bind:this={track}>{@render children()}{#if onSeeAll}<div class="card poster seeall" role="button" tabindex="0" onclick={onSeeAll}
+    onkeydown={(e) => e.key === "Enter" && onSeeAll()}><span>See all ›</span></div>{/if}</div>
   <button class="arrow r" aria-label="Scroll right" tabindex="-1" onclick={() => scroll(1)}>›</button>
 </section>

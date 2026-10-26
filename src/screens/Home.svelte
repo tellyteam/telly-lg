@@ -6,7 +6,7 @@
   import type { Channel, Series } from "../lib/model";
   import * as P from "../lib/playback";
   import { app } from "../lib/state.svelte";
-  import { playChannel } from "../lib/actions";
+  import { playChannel, playFilm } from "../lib/actions";
 
   // Something still to watch: a finished film or series never leads Home (PLAYBACK.md).
   const continuing = $derived(app.history.filter((h) => P.inContinue(h, app.progressOf)));
@@ -20,6 +20,8 @@
   const favs = $derived(app.favouriteItems());
   const newFilms = $derived(app.recentlyAdded(app.films));
   const newSeries = $derived(app.recentlyAdded(app.series));
+  // Nothing to pick up yet: the billboard features the newest film, as on the Fire TV app.
+  const featured = $derived(newFilms[0]);
 
   function heroLabel(): string {
     if (!pick) return "";
@@ -44,7 +46,7 @@
   <TopBar />
   {#if pick && pickItem}
     <section class="hero">
-      <div class="art"><Art src={pickSeries?.cover ?? pick.art ?? pickItem.logo} title={pick.heading} /></div>
+      <div class="art"><div class="fade"><Art src={pickSeries?.cover ?? pick.art ?? pickItem.logo} title={pick.heading} /></div></div>
       <div class="copy">
         <div class="eyebrow">{nextUp ? "Up next" : "Pick up where you left off"}</div>
         <div class="title-xl">{pick.live ? pickItem.name : P.isFilm(pick) ? pickItem.name : pick.heading}</div>
@@ -61,7 +63,16 @@
       </div>
     </section>
   {:else}
-    <div class="page-head" style="padding-top:8px"><h2>Welcome to telly</h2><span class="sub">Pick something from {app.provider?.kind === "m3u" ? "Live TV" : "Live TV, Series or Films"}, and it'll show up here next time.</span></div>
+    <section class="hero">
+      {#if featured}<div class="art"><div class="fade"><Art src={featured.logo} title={featured.name} /></div></div>{/if}
+      <div class="copy">
+        <div class="eyebrow">Welcome to telly</div>
+        <div class="title-xl">{featured?.name ?? (app.provider?.kind === "m3u" ? "Live TV" : "Live TV, films and series")}</div>
+        <div class="meta"><span>{featured ? "Recently added film" : "Pick something below to get started"}</span></div>
+        <div style="height:16px"></div>
+        {#if featured}<div class="btns"><button class="btn primary" onclick={() => playFilm(featured)}>▶ Play</button></div>{/if}
+      </div>
+    </section>
   {/if}
 
   {#if continuing.length}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import Rail from "./components/Rail.svelte";
-  import { flushWrites } from "./lib/backend";
+  import { flushWrites, isWebOS } from "./lib/backend";
   import { app } from "./lib/state.svelte";
   import Catalog from "./screens/Catalog.svelte";
   import FilmDetail from "./screens/FilmDetail.svelte";
@@ -49,7 +49,8 @@
 
 <svelte:window bind:innerWidth={width} {onkeydown} />
 
-<div class="window" class:narrow={width < 1000}>
+<!-- A TV lays out at 960 wide (zoom 2, like Android TV), but it isn't a narrow window. -->
+<div class="window" class:narrow={width < 1000 && !isWebOS}>
   {#if !app.ready}
     <div class="center"><div class="spinner"></div></div>
   {:else if app.route.name === "setup" || !app.provider}

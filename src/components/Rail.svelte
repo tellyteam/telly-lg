@@ -21,12 +21,18 @@
   const section = (r: Route) => (r.name === "seriesDetail" || (r.name === "grid" && r.kind === "series") ? "series"
     : r.name === "filmDetail" || r.name === "grid" ? "films" : r.name);
   const m3u = $derived(app.provider?.kind === "m3u");
+
+  /** Opens a page and hands the remote to it, so the menu closes (as on the Fire TV app). */
+  function open(name: Top | "settings") {
+    app.go({ name });
+    (document.activeElement as HTMLElement | null)?.blur();
+  }
 </script>
 
 <nav class="rail">
   <div class="wordmark"><Wordmark height={26} /></div>
   {#each items.filter(([id]) => !(m3u && (id === "series" || id === "films"))) as [id, label, k]}
-    <button class="nav" class:current={section(app.route) === id} onclick={() => app.go({ name: id })} title={label}>
+    <button class="nav" class:current={section(app.route) === id} onclick={() => open(id)} title={label}>
       <svg viewBox="0 0 24 24" fill="currentColor">{@html icons[id]}</svg><span>{label}</span><kbd class="k">{k}</kbd>
     </button>
   {/each}
@@ -35,7 +41,7 @@
     <svg viewBox="0 0 24 24" fill="currentColor">{@html icons.refresh}</svg>
     <span>Refresh<small>{app.refreshing ? "Refreshing…" : `Updated ${ago(app.meta.updatedAt)}`}</small></span>
   </button>
-  <button class="nav" class:current={app.route.name === "settings"} onclick={() => app.go({ name: "settings" })} title="Settings">
+  <button class="nav" class:current={app.route.name === "settings"} onclick={() => open("settings")} title="Settings">
     <svg viewBox="0 0 24 24" fill="currentColor">{@html icons.settings}</svg><span>Settings</span>
     <kbd class="k">{mod},</kbd>
   </button>
