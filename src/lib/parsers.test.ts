@@ -175,3 +175,18 @@ describe("groupInOrder", () => {
     expect(groups.map((g) => [g.name, g.items.length])).toEqual([["a", 1], ["b", 2], ["x", 1]]);
   });
 });
+
+describe("stream addresses", () => {
+  it("match what new URL() makes, for servers with and without a path", async () => {
+    const { streamUrl } = await import("./xtream");
+    const slow = (server: URL, kind: string, u: string, p: string, id: string, ext: string) =>
+      new URL([kind, u, p, `${id}.${ext}`].map(encodeURIComponent).join("/"), server).toString();
+    for (const s of ["http://example.com:8080/", "http://example.com:8080", "https://tv.example/panel/", "https://tv.example/panel/player_api.php"]) {
+      const server = new URL(s);
+      for (const [u, p] of [["me", "pw"], ["a b", "p/w#?&"], ["üser", "%41"]]) {
+        expect(streamUrl(server, "live", u, p, "123", "ts")).toBe(slow(server, "live", u, p, "123", "ts"));
+        expect(streamUrl(server, "movie", u, p, "9", "mkv")).toBe(slow(server, "movie", u, p, "9", "mkv"));
+      }
+    }
+  });
+});

@@ -43,7 +43,22 @@ export function apiUrl(server: URL, username: string, password: string, action?:
 
 /** `{server}/{kind}/{user}/{pass}/{id}.{ext}`, the standard Xtream stream path. */
 export function streamUrl(server: URL, kind: string, username: string, password: string, id: string, ext: string): string {
-  return new URL([kind, username, password, `${id}.${ext}`].map(encodeURIComponent).join("/"), server).toString();
+  return prefix(server, kind, username, password) + encodeURIComponent(`${id}.${ext}`);
+}
+
+/**
+ * Everything before a stream's own id, worked out once per list rather than per stream: building
+ * each of tens of thousands of addresses with new URL() took over a second on a TV. Relative paths
+ * resolve against the server's address up to its last "/".
+ */
+let lastKey: unknown[] = [], lastPrefix = "";
+function prefix(server: URL, kind: string, username: string, password: string): string {
+  const key = [server, kind, username, password];
+  if (key.some((k, i) => k !== lastKey[i])) {
+    lastKey = key;
+    lastPrefix = new URL(".", server).toString() + [kind, username, password].map(encodeURIComponent).join("/") + "/";
+  }
+  return lastPrefix;
 }
 
 // ---- Account ----

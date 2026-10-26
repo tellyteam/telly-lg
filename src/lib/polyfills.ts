@@ -24,8 +24,17 @@ define(String.prototype, "matchAll", function* (this: string, re: RegExp) {
   }
 });
 // Chromium 69.
+// In place, not by concat: catalogues flatten tens of thousands of items, and copying each step took seconds.
 define(Array.prototype, "flat", function (this: unknown[], depth = 1): unknown[] {
-  return depth < 1 ? this.slice() : this.reduce<unknown[]>((all, v) => all.concat(Array.isArray(v) ? (v as unknown[]).flat(depth - 1) : [v]), []);
+  const out: unknown[] = [];
+  const add = (list: unknown[], d: number) => {
+    for (const v of list) {
+      if (Array.isArray(v) && d > 0) add(v, d - 1);
+      else out.push(v);
+    }
+  };
+  add(this, depth);
+  return out;
 });
 define(Array.prototype, "flatMap", function (this: unknown[], fn: (v: unknown, i: number, a: unknown[]) => unknown, self?: unknown) {
   return this.map(fn, self).flat();

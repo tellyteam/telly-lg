@@ -64,6 +64,9 @@ export const RELAY = "https://telly-sync.tellyteam.workers.dev";
 /** Never more often than this when the window regains focus. */
 const SYNC_GAP_MS = 60_000;
 
+/** Lets the screen update (and the remote respond) between pieces of heavy work. */
+const nextFrame = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
 export type FavKind = "live" | "film" | "series";
 export const favKey = (kind: FavKind, id: string) => `${kind}:${id}`;
 
@@ -209,17 +212,27 @@ class App {
     await this.activate(saved);
   }
 
-  /** Shows the saved lists straight away, then refreshes them in the background. */
+  /**
+   * Shows the app straight away, the saved lists as each is ready, then refreshes them in the
+   * background (as the Fire TV app does).
+   */
   private async useProvider(p: Provider) {
     this.provider = p;
     backend.setAllowCleartext(p.allowCleartext);
-    const [live, films, series] = await Promise.all([
-      repo.liveGroups(p, "cache").catch(() => undefined),
-      repo.filmGroups(p, "cache").catch(() => undefined),
-      repo.seriesGroups(p, "cache").catch(() => undefined),
-    ]);
-    this.setCatalogues(live ?? null, films ?? null, series ?? null);
-    void this.refresh().then(() => this.syncNow());
+    void this.loadSaved(p).then(() => this.refresh()).then(() => this.syncNow());
+  }
+
+  /** The saved lists, one at a time (films and series first, for Home), the screen updating between. */
+  private async loadSaved(p: Provider) {
+    const steps = [
+      () => repo.filmGroups(p, "cache").then((films) => films && this.provider === p && this.setCatalogues(null, films, null)),
+      () => repo.seriesGroups(p, "cache").then((series) => series && this.provider === p && this.setCatalogues(null, null, series)),
+      () => repo.liveGroups(p, "cache").then((live) => live && this.provider === p && this.setCatalogues(live, null, null)),
+    ];
+    for (const step of steps) {
+      await step().catch(() => undefined);
+      await nextFrame();
+    }
   }
 
   private setCatalogues(live: Group<Channel>[] | null, films: Group<Channel>[] | null, series: Group<Series>[] | null) {
@@ -243,15 +256,30 @@ class App {
     if (!p || this.refreshing) return;
     this.refreshing = true;
     this.loadError = null;
-    const results = await Promise.allSettled([repo.liveGroups(p, "network"), repo.filmGroups(p, "network"), repo.seriesGroups(p, "network")]);
-    if (this.provider !== p) return; // the provider changed meanwhile
-    const [live, films, series] = results.map((r) => (r.status === "fulfilled" ? r.value ?? null : null));
-    this.setCatalogues(live as Group<Channel>[] | null, films as Group<Channel>[] | null, series as Group<Series>[] | null);
-    const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    // One list at a time, as the Fire TV app does, so the TV stays responsive; each is shown as it
+    // arrives, and one that hasn't changed since last time isn't parsed or shown again.
+    const steps = [
+      () => repo.liveGroups(p, "network").then((live) => live && this.setCatalogues(live, null, null)),
+      () => repo.filmGroups(p, "network").then((films) => films && this.setCatalogues(null, films, null)),
+      () => repo.seriesGroups(p, "network").then((series) => series && this.setCatalogues(null, null, series)),
+    ];
+    let failed: unknown;
+    for (const step of steps) {
+      try {
+        await step();
+      } catch (e) {
+        failed ??= e;
+      }
+      if (this.provider !== p) { // the provider changed meanwhile
+        this.refreshing = false;
+        return;
+      }
+      await nextFrame();
+    }
     if (failed) {
       // Only an error worth a screen when there's nothing saved to show instead.
-      if (!this.live) this.loadError = (failed.reason as Error).message || "Couldn't load your lists.";
-      else console.warn("Refresh failed", failed.reason);
+      if (!this.live) this.loadError = (failed as Error).message || "Couldn't load your lists.";
+      else console.warn("Refresh failed", failed);
     } else {
       this.meta.updatedAt = Date.now();
       backend.storeWrite("meta", this.meta);

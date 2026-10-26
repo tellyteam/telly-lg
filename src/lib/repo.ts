@@ -35,7 +35,12 @@ class XtreamSession {
     return format;
   }
 
-  async list<T>(action: string, parse: (json: unknown) => T, extra?: Record<string, string>, cacheName = action): Promise<T | undefined> {
+  /**
+   * One of the provider's lists: the saved copy, or a fresh one (saved for next time). With
+   * [unchangedIsNothing], a fresh answer identical to the saved one returns undefined without being
+   * parsed again: the big catalogues rarely change, and parsing tens of thousands of items is slow on a TV.
+   */
+  async list<T>(action: string, parse: (json: unknown) => T, extra?: Record<string, string>, cacheName = action, unchangedIsNothing = false): Promise<T | undefined> {
     const scope = await this.scopeP;
     if (this.source === "cache") {
       const saved = await cache.read(scope, cacheName);
@@ -47,6 +52,7 @@ class XtreamSession {
       }
     }
     const text = await getText(this.api(action, extra));
+    if (unchangedIsNothing && (await cache.read(scope, cacheName))?.text === text) return undefined;
     let json: unknown;
     try {
       json = JSON.parse(text);
@@ -70,7 +76,7 @@ export async function liveGroups(p: Provider, source: Source): Promise<Group<Cha
     const format = await x.format();
     const cats = format && (await x.categories("get_live_categories"));
     if (!format || !cats) return undefined;
-    const channels = await x.list("get_live_streams", (j) => X.liveChannels(x.server, p.username, p.password, format, cats, j));
+    const channels = await x.list("get_live_streams", (j) => X.liveChannels(x.server, p.username, p.password, format, cats, j), undefined, undefined, true);
     if (!channels) return undefined;
     groups = groupInOrder(channels, [...cats.values()], (c) => c.group);
   } else {
@@ -94,7 +100,7 @@ export async function filmGroups(p: Provider, source: Source): Promise<Group<Cha
   const x = new XtreamSession(p, source);
   const cats = await x.categories("get_vod_categories");
   if (!cats) return undefined;
-  const films = await x.list("get_vod_streams", (j) => X.films(x.server, p.username, p.password, cats, j));
+  const films = await x.list("get_vod_streams", (j) => X.films(x.server, p.username, p.password, cats, j), undefined, undefined, true);
   return films && groupInOrder(films, [...cats.values()], (f) => f.group);
 }
 
@@ -103,7 +109,7 @@ export async function seriesGroups(p: Provider, source: Source): Promise<Group<S
   const x = new XtreamSession(p, source);
   const cats = await x.categories("get_series_categories");
   if (!cats) return undefined;
-  const series = await x.list("get_series", (j) => X.series(cats, j));
+  const series = await x.list("get_series", (j) => X.series(cats, j), undefined, undefined, true);
   return series && groupInOrder(series, [...cats.values()], (s) => s.group);
 }
 
