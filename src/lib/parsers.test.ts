@@ -205,7 +205,28 @@ describe("compact catalogues", () => {
     expect(packed).not.toContain("http://tv.example");
     expect(C.unpackChannels(packed, server, "movie", "me", "p@ss")).toEqual(groups);
     const series = groupInOrder(X.series(cats, [{ series_id: 5, name: "S", category_id: "1", cover: "c.jpg", plot: "P", last_modified: "1700000001" }]), [...cats.values()], (s) => s.group);
-    expect(C.unpackSeries(C.packSeries(series))).toEqual(series);
+    // Series lose their plots: a series' page fetches its own.
+    expect(C.unpackSeries(C.packSeries(series))).toEqual(series.map((g) => ({ ...g, items: g.items.map(({ plot: _, ...s }) => s) })));
     expect(C.unpackChannels("not json", server, "movie", "me", "p")).toBeUndefined();
+  });
+
+  it("convert a fresh answer once, skip it when unchanged, and unpack the saved copy to the same list", async () => {
+    const { run } = await import("./lists");
+    const answer = [
+      { stream_id: 10, name: "A", category_id: "1", container_extension: "mkv", added: "1700000000" },
+      { stream_id: 11, name: "B", category_id: "2", container_extension: "mp4" },
+    ];
+    const bytes = () => new TextEncoder().encode(JSON.stringify(answer)).buffer as ArrayBuffer;
+    const login = { kind: "films" as const, server: server.toString(), username: "me", password: "p@ss" };
+    const cats: [string, string][] = [["1", "Drama"], ["2", "Kids"]];
+    const fresh = await run({ op: "convert", bytes: bytes(), cats, ...login });
+    if (fresh.unchanged) throw new Error("expected a list");
+    expect(fresh.groups.map((g) => g.name)).toEqual(["Drama", "Kids"]);
+    expect(await run({ op: "convert", bytes: bytes(), cats, saved: fresh.fingerprint, ...login })).toEqual({ unchanged: true });
+    // Renamed categories are a change, though the answer is the same.
+    expect((await run({ op: "convert", bytes: bytes(), cats: [["1", "Films"], ["2", "Kids"]], saved: fresh.fingerprint, ...login })).unchanged).toBeFalsy();
+    const saved = await run({ op: "unpack", text: fresh.packed!, ...login });
+    expect(saved).toEqual({ groups: fresh.groups });
+    await expect(run({ op: "convert", bytes: new TextEncoder().encode("<html>").buffer as ArrayBuffer, cats, ...login })).rejects.toThrow("valid JSON");
   });
 });

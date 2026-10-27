@@ -1,5 +1,5 @@
 /**
- * Saved catalogues: the provider's raw answers, kept in the web view's IndexedDB so telly opens
+ * Saved catalogues (compact.ts) and the provider's smaller answers, kept in the web view's IndexedDB so telly opens
  * instantly and refreshes in the background. Scoped by a hash of server and username, so
  * switching providers never mixes lists. (The answers themselves contain no login.)
  */
@@ -43,11 +43,22 @@ export async function read(scope: string, name: string): Promise<Saved | undefin
   }
 }
 
-export async function write(scope: string, name: string, text: string): Promise<void> {
+/** False if it couldn't be saved (the TV's storage full, say). */
+export async function write(scope: string, name: string, text: string): Promise<boolean> {
   try {
     await tx("readwrite", (s) => s.put({ text, savedAt: Date.now() } satisfies Saved, `${scope}/${name}`));
+    return true;
   } catch (e) {
     console.warn("Couldn't save a catalogue", e);
+    return false;
+  }
+}
+
+export async function remove(scope: string, name: string): Promise<void> {
+  try {
+    await tx("readwrite", (s) => s.delete(`${scope}/${name}`));
+  } catch {
+    /* nothing to remove */
   }
 }
 

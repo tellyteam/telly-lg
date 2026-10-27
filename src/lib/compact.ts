@@ -39,10 +39,11 @@ export function unpackChannels(text: string, server: URL, kind: string, username
   }));
 }
 
+/** Without plots: they're most of the list's size, and a series' page fetches its own. */
 export function packSeries(groups: Group<Series>[]): string {
   return JSON.stringify({
     v: VERSION,
-    g: groups.map((g) => [g.name, g.items.map((s): PackedSeries => [s.id, s.name, s.cover ?? null, s.plot ?? null, s.added ?? 0])]),
+    g: groups.map((g) => [g.name, g.items.map((s): PackedSeries => [s.id, s.name, s.cover ?? null, null, s.added ?? 0])]),
   });
 }
 

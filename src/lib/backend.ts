@@ -59,7 +59,7 @@ function host(url: string): string {
   }
 }
 
-export async function getText(url: string, signal?: AbortSignal): Promise<string> {
+async function get(url: string, signal?: AbortSignal): Promise<Response> {
   if (url.startsWith("http:") && !cleartext) {
     throw new Error(`Unencrypted HTTP to ${host(url)} is turned off. If your provider has no HTTPS, allow it in Settings.`);
   }
@@ -72,7 +72,16 @@ export async function getText(url: string, signal?: AbortSignal): Promise<string
   }
   if (res.status === 502 || res.status === 403) throw new Error(await res.text());
   if (!res.ok) throw new Error(`${host(url)} returned HTTP ${res.status}.`);
-  return res.text();
+  return res;
+}
+
+export async function getText(url: string, signal?: AbortSignal): Promise<string> {
+  return (await get(url, signal)).text();
+}
+
+/** The answer undecoded, for a worker to read: decoding tens of megabytes here would stall the screen. */
+export async function getBytes(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+  return (await get(url, signal)).arrayBuffer();
 }
 
 export async function getJson(url: string, signal?: AbortSignal): Promise<unknown> {

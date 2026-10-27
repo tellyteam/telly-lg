@@ -3,8 +3,8 @@
  * and webOS 6 (2021) Chromium 79. The build lowers newer syntax for Chromium 68 (vite.config.ts).
  */
 
-// Chromium 71. First: the fallbacks below, and Svelte, use it.
-if (typeof globalThis === "undefined") (window as unknown as { globalThis: Window }).globalThis = window;
+// Chromium 71. First: the fallbacks below, and Svelte, use it. (`self`: the lists' worker loads these too.)
+if (typeof globalThis === "undefined") (self as unknown as { globalThis: typeof self }).globalThis = self;
 
 function define(target: object, name: string, value: unknown) {
   if (!(name in target)) Object.defineProperty(target, name, { configurable: true, writable: true, value });

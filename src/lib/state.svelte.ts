@@ -238,17 +238,23 @@ class App {
   }
 
   private setCatalogues(live: Group<Channel>[] | null, films: Group<Channel>[] | null, series: Group<Series>[] | null) {
+    // Plain loops: building pairs for tens of thousands of items first took a noticeable moment on a TV.
+    const byId = <T extends { id: string }>(groups: Group<T>[]) => {
+      const map = new Map<string, T>();
+      for (const g of groups) for (const item of g.items) map.set(item.id, item);
+      return map;
+    };
     if (live) {
       this.live = live;
-      this.liveById = new Map(live.flatMap((g) => g.items.map((c) => [c.id, c] as const)));
+      this.liveById = byId(live);
     }
     if (films) {
       this.films = films;
-      this.filmById = new Map(films.flatMap((g) => g.items.map((c) => [c.id, c] as const)));
+      this.filmById = byId(films);
     }
     if (series) {
       this.series = series;
-      this.seriesById = new Map(series.flatMap((g) => g.items.map((s) => [s.id, s] as const)));
+      this.seriesById = byId(series);
     }
     this.searchIndex = undefined;
   }
@@ -261,9 +267,9 @@ class App {
     // One list at a time, as the Fire TV app does, so the TV stays responsive; each is shown as it
     // arrives, and one that hasn't changed since last time isn't parsed or shown again.
     const steps = [
-      () => repo.liveGroups(p, "network").then((live) => live && this.setCatalogues(live, null, null)),
-      () => repo.filmGroups(p, "network").then((films) => films && this.setCatalogues(null, films, null)),
-      () => repo.seriesGroups(p, "network").then((series) => series && this.setCatalogues(null, null, series)),
+      () => repo.liveGroups(p, "network", !!this.live).then((live) => live && this.setCatalogues(live, null, null)),
+      () => repo.filmGroups(p, "network", !!this.films).then((films) => films && this.setCatalogues(null, films, null)),
+      () => repo.seriesGroups(p, "network", !!this.series).then((series) => series && this.setCatalogues(null, null, series)),
     ];
     let failed: unknown;
     for (const step of steps) {
@@ -429,10 +435,21 @@ class App {
   }
 
   /** Newest first, across every category. */
-  recentlyAdded<T extends { added?: number }>(groups: Group<T>[] | null, n = 24): T[] {
-    const all = (groups ?? []).flatMap((g) => g.items);
-    if (!all.some((i) => i.added)) return [];
-    return all.filter((i) => i.added).sort((a, b) => (b.added ?? 0) - (a.added ?? 0)).slice(0, n);
+  /** The newest [n], in one pass: sorting every film on a TV took the best part of a second. */
+  recentlyAdded<T extends { id: string; added?: number }>(groups: Group<T>[] | null, n = 24): T[] {
+    const top: T[] = [], seen = new Set<string>();
+    for (const g of groups ?? []) {
+      for (const item of g.items) {
+        const added = item.added ?? 0;
+        if (!added || (top.length === n && added <= (top[n - 1].added ?? 0)) || seen.has(item.id)) continue;
+        let i = top.length;
+        while (i > 0 && (top[i - 1].added ?? 0) < added) i--;
+        top.splice(i, 0, item);
+        seen.add(item.id);
+        if (top.length > n) seen.delete(top.pop()!.id);
+      }
+    }
+    return top;
   }
 
   // ---- My List ----

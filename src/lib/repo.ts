@@ -1,6 +1,7 @@
 import * as cache from "./cache";
-import * as C from "./compact";
-import { getJson, getText } from "./backend";
+import { getBytes, getJson, getText } from "./backend";
+import { inBackground } from "./background";
+import type { Kind } from "./lists";
 import * as guide from "./guide";
 import { parseM3u } from "./m3u";
 import { groupInOrder, type Channel, type Details, type Group, type Provider, type Series, type SeriesData } from "./model";
@@ -21,14 +22,36 @@ class XtreamSession {
     this.scopeP = cache.scope("xtream", this.server.toString(), p.username);
   }
 
-  /** The catalogue saved as telly uses it (see compact.ts), if there is one. */
-  async compact(name: string): Promise<string | undefined> {
-    return (await cache.read(await this.scopeP, `compact-${name}`))?.text;
-  }
-
-  /** Saves [pack]'s output once the screen has updated: making it takes a moment on a TV. */
-  saveCompact(name: string, pack: () => string) {
-    setTimeout(() => void this.scopeP.then((scope) => cache.write(scope, `compact-${name}`, pack())), 0);
+  /**
+   * One of the big lists, [kind]: from its saved copy, or fresh from the provider's [action]
+   * (saved for next time). All the reading and converting happens in a worker (lists.ts). With
+   * [known], a fresh list identical to the one saved (by fingerprint) returns undefined: it's
+   * already showing.
+   */
+  async big(kind: Kind, action: string, cats?: Map<string, string>, format?: string, known = false): Promise<Group<Channel | Series>[] | undefined> {
+    const scope = await this.scopeP;
+    const login = { kind, server: this.server.toString(), username: this.p.username, password: this.p.password };
+    if (this.source === "cache") {
+      const text = (await cache.read(scope, `compact-${kind}`))?.text;
+      if (!text) return undefined;
+      try {
+        const r = await inBackground({ op: "unpack", text, ...login });
+        return r.unchanged ? undefined : r.groups;
+      } catch {
+        await cache.remove(scope, `fp-${kind}`); // so the next refresh converts it afresh
+        return undefined;
+      }
+    }
+    if (!cats) return undefined;
+    const bytes = await getBytes(this.api(action));
+    const saved = known ? (await cache.read(scope, `fp-${kind}`))?.text : undefined;
+    const r = await inBackground({ op: "convert", bytes, cats: [...cats], format, saved, ...login });
+    if (r.unchanged) return undefined;
+    // The fingerprint only once the list it stands for is safely saved.
+    if (r.packed && r.fingerprint && (await cache.write(scope, `compact-${kind}`, r.packed))) await cache.write(scope, `fp-${kind}`, r.fingerprint);
+    else await cache.remove(scope, `fp-${kind}`);
+    void cache.remove(scope, action); // the raw answer earlier versions saved
+    return r.groups;
   }
 
   api(action?: string, extra?: Record<string, string>) {
@@ -46,12 +69,8 @@ class XtreamSession {
     return format;
   }
 
-  /**
-   * One of the provider's lists: the saved copy, or a fresh one (saved for next time). With
-   * [unchangedIsNothing], a fresh answer identical to the saved one returns undefined without being
-   * parsed again: the big catalogues rarely change, and parsing tens of thousands of items is slow on a TV.
-   */
-  async list<T>(action: string, parse: (json: unknown) => T, extra?: Record<string, string>, cacheName = action, unchangedIsNothing = false): Promise<T | undefined> {
+  /** One of the provider's smaller answers: the saved copy, or a fresh one (saved for next time). */
+  async list<T>(action: string, parse: (json: unknown) => T, extra?: Record<string, string>, cacheName = action): Promise<T | undefined> {
     const scope = await this.scopeP;
     if (this.source === "cache") {
       const saved = await cache.read(scope, cacheName);
@@ -63,7 +82,6 @@ class XtreamSession {
       }
     }
     const text = await getText(this.api(action, extra));
-    if (unchangedIsNothing && (await cache.read(scope, cacheName))?.text === text) return undefined;
     let json: unknown;
     try {
       json = JSON.parse(text);
@@ -80,23 +98,21 @@ class XtreamSession {
   }
 }
 
-export async function liveGroups(p: Provider, source: Source): Promise<Group<Channel>[] | undefined> {
+/**
+ * The lists, from what was saved ("cache") or fresh ("network"). With [known] (the list is already
+ * showing), a fresh list that hasn't changed returns undefined.
+ */
+export async function liveGroups(p: Provider, source: Source, known = false): Promise<Group<Channel>[] | undefined> {
   let groups: Group<Channel>[];
   if (p.kind === "xtream") {
     const x = new XtreamSession(p, source);
-    if (source === "cache") {
-      const packed = await x.compact("live");
-      const unpacked = packed && C.unpackChannels(packed, x.server, "live", p.username, p.password);
-      if (unpacked) return unpacked;
-    }
+    if (source === "cache") return (await x.big("live", "get_live_streams")) as Group<Channel>[] | undefined;
     const format = await x.format();
     const cats = format && (await x.categories("get_live_categories"));
     if (!format || !cats) return undefined;
-    const channels = await x.list("get_live_streams", (j) => X.liveChannels(x.server, p.username, p.password, format, cats, j), undefined, undefined, true);
-    if (!channels) return undefined;
-    groups = groupInOrder(channels, [...cats.values()], (c) => c.group);
-    const done = groups;
-    x.saveCompact("live", () => C.packChannels(done));
+    const fresh = await x.big("live", "get_live_streams", cats, format, known);
+    if (!fresh) return undefined;
+    groups = fresh as Group<Channel>[];
   } else {
     const url = p.url.trim();
     const scope = await cache.scope("m3u", url);
@@ -113,38 +129,18 @@ export async function liveGroups(p: Provider, source: Source): Promise<Group<Cha
   return groups;
 }
 
-export async function filmGroups(p: Provider, source: Source): Promise<Group<Channel>[] | undefined> {
+export async function filmGroups(p: Provider, source: Source, known = false): Promise<Group<Channel>[] | undefined> {
   if (p.kind !== "xtream") return [];
   const x = new XtreamSession(p, source);
-  if (source === "cache") {
-    const packed = await x.compact("films");
-    const unpacked = packed && C.unpackChannels(packed, x.server, "movie", p.username, p.password);
-    if (unpacked) return unpacked;
-  }
-  const cats = await x.categories("get_vod_categories");
-  if (!cats) return undefined;
-  const films = await x.list("get_vod_streams", (j) => X.films(x.server, p.username, p.password, cats, j), undefined, undefined, true);
-  if (!films) return undefined;
-  const groups = groupInOrder(films, [...cats.values()], (f) => f.group);
-  x.saveCompact("films", () => C.packChannels(groups));
-  return groups;
+  const cats = source === "network" ? await x.categories("get_vod_categories") : undefined;
+  return (await x.big("films", "get_vod_streams", cats, undefined, known)) as Group<Channel>[] | undefined;
 }
 
-export async function seriesGroups(p: Provider, source: Source): Promise<Group<Series>[] | undefined> {
+export async function seriesGroups(p: Provider, source: Source, known = false): Promise<Group<Series>[] | undefined> {
   if (p.kind !== "xtream") return [];
   const x = new XtreamSession(p, source);
-  if (source === "cache") {
-    const packed = await x.compact("series");
-    const unpacked = packed && C.unpackSeries(packed);
-    if (unpacked) return unpacked;
-  }
-  const cats = await x.categories("get_series_categories");
-  if (!cats) return undefined;
-  const series = await x.list("get_series", (j) => X.series(cats, j), undefined, undefined, true);
-  if (!series) return undefined;
-  const groups = groupInOrder(series, [...cats.values()], (s) => s.group);
-  x.saveCompact("series", () => C.packSeries(groups));
-  return groups;
+  const cats = source === "network" ? await x.categories("get_series_categories") : undefined;
+  return (await x.big("series", "get_series", cats, undefined, known)) as Group<Series>[] | undefined;
 }
 
 export async function seriesData(p: Provider, series: Series, source: Source): Promise<SeriesData | undefined> {

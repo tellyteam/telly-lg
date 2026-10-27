@@ -5,11 +5,13 @@ import type { ServerResponse } from "node:http";
  * Server address: http://localhost:5173/__dev/fake (any username and password; allow plain HTTP).
  * Streams redirect to public test videos. With TELLY_FAKE_MKV set to an MKV's address (served
  * with byte ranges), every third film is that MKV, for testing playback, seeking and downloads.
+ * With TELLY_FAKE_BIG set, the lists are as long as a big real provider's, for measuring.
  */
 
 const HLS = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
 const MP4 = "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_5MB.mp4";
 const MKV = process.env.TELLY_FAKE_MKV;
+const [LIVE, FILMS, SERIES] = process.env.TELLY_FAKE_BIG ? [57_160, 185_596, 49_686] : [160, 420, 140];
 const words = ["Harbour", "Signal", "Copper", "Valley", "Night", "Train", "Paper", "Moons", "Long", "Field", "Glass", "Winter", "Lines", "Small", "Hours",
   "Kingfisher", "Rain", "North", "Road", "Static", "Blue", "Daybreak", "Hollow", "Hill", "Marlow", "River", "Outpost", "Tide", "Bright", "Water"];
 const pick = (i: number, n: number) => words[(i * 7 + n * 13) % words.length];
@@ -57,17 +59,17 @@ export function fakeProvider(path: string, query: URLSearchParams, res: ServerRe
     case "get_vod_categories": return cats(filmCats);
     case "get_series_categories": return cats(seriesCats);
     case "get_live_streams":
-      return json(Array.from({ length: 160 }, (_, i) => {
+      return json(Array.from({ length: LIVE }, (_, i) => {
         const name = `${chanNames[i % chanNames.length]}${i >= chanNames.length ? ` ${Math.floor(i / chanNames.length) + 1}` : ""}`;
         return { stream_id: 1000 + i, name, stream_icon: img("logo", name.split(" ")[0]), epg_channel_id: `c${i}`, category_id: String((i % liveCats.length) + 1) };
       }));
     case "get_vod_streams":
-      return json(Array.from({ length: 420 }, (_, i) => ({
+      return json(Array.from({ length: FILMS }, (_, i) => ({
         stream_id: 5000 + i, name: title(i), stream_icon: i % 9 === 4 ? "" : img("poster", title(i)), category_id: String((i % filmCats.length) + 1),
         container_extension: MKV && i % 3 === 0 ? "mkv" : "mp4", added: String(now() - i * 3600 * 7),
       })));
     case "get_series":
-      return json(Array.from({ length: 140 }, (_, i) => ({
+      return json(Array.from({ length: SERIES }, (_, i) => ({
         series_id: 800 + i, name: title(i + 50), cover: img("poster", title(i + 50)), plot: `On a remote island where everyone knows everyone, a returning detective uncovers what ${title(i + 50)} has kept hidden for thirty years.`,
         category_id: String((i % seriesCats.length) + 1), last_modified: String(now() - i * 3600 * 11),
       })));
