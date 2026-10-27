@@ -92,7 +92,8 @@ class App {
   settings = $state<Settings>({ autoNext: true });
   sync = $state<SyncConfig | null>(null);
   syncStatus = $state<{ busy: boolean; at?: number; error?: string }>({ busy: false });
-  private ledger: Ledger = emptyLedger();
+  /** Reactive for the record of watched titles it holds, which posters show. */
+  private ledger = $state<Ledger>(emptyLedger());
 
   route = $state<Route>({ name: "home" });
   private back: Route[] = [];
@@ -196,6 +197,7 @@ class App {
     this.history = r.history;
     this.ledger = r.ledger;
     this.activeId = saved.id;
+    this.seedWatched();
     this.meta.activeProvider = saved.id;
     backend.storeWrite("meta", this.meta, 0);
     this.live = this.films = this.series = null;
@@ -449,9 +451,10 @@ class App {
     this.syncSoon();
   }
 
+  /** My List's channels, films and series, the watched after the rest (PLAYBACK.md, Watched titles). */
   favouriteItems() {
     const live: Channel[] = [], films: Channel[] = [], series: Series[] = [];
-    for (const key of this.favourites) {
+    for (const key of P.myListOrder(this.favourites, (k) => this.ledger.watched[k]?.[1] === true)) {
       const [kind, ...rest] = key.split(":");
       const id = rest.join(":");
       if (kind === "live") { const c = this.liveById.get(id); if (c) live.push(c); }
@@ -467,8 +470,44 @@ class App {
 
   saveProgress(url: string, pos: number, dur: number) {
     if (!(dur > 0) || !Number.isFinite(dur)) return;
-    this.progress[P.progressKey(url)] = [Math.round(Math.min(Math.max(pos, 0), dur)), Math.round(dur), Date.now()];
+    const key = P.progressKey(url);
+    const p: P.Progress = [Math.round(Math.min(Math.max(pos, 0), dur)), Math.round(dur), Date.now()];
+    this.progress[key] = p;
     this.write("progress", this.progress, 2000);
+    const film = P.finished(p) ? P.filmId(key) : null;
+    if (film) this.filmWatched(film);
+  }
+
+  // ---- Watched titles ----
+
+  isWatched(kind: FavKind, id: string) {
+    return this.ledger.watched[favKey(kind, id)]?.[1] === true;
+  }
+
+  /** Records a film as watched; the first time, one in My List leaves it (PLAYBACK.md, Watched titles). */
+  private filmWatched(id: string) {
+    const key = favKey("film", id);
+    if (this.ledger.watched[key]?.[1]) return;
+    this.setWatched(key, true);
+    if (P.leavesMyList("film") && this.favourites.includes(key)) this.toggleFavourite("film", id);
+  }
+
+  private setWatched(key: string, on: boolean, episode = "") {
+    this.ledger.watched[key] = [Date.now(), on, episode];
+    this.saveLedger();
+    this.syncSoon();
+  }
+
+  /** Starts the record from films already watched; series follow from the episode check. */
+  private seedWatched() {
+    let changed = false;
+    for (const [k, p] of Object.entries(this.progress)) {
+      const id = P.finished(p) ? P.filmId(k) : null;
+      if (!id || this.ledger.watched[favKey("film", id)]) continue;
+      this.ledger.watched[favKey("film", id)] = [p[2] ?? 0, true, ""];
+      changed = true;
+    }
+    if (changed) this.saveLedger();
   }
 
   /** The newest history entry for a series, to resume it from its page. */
@@ -508,7 +547,7 @@ class App {
   clearProgress() {
     this.progress = {};
     this.history = [];
-    this.ledger = { ...this.ledger, removed: {}, cleared: Date.now() };
+    this.ledger = { ...this.ledger, removed: {}, watched: {}, cleared: Date.now() };
     this.write("progress", this.progress, 0);
     this.write("history", this.history, 0);
     this.saveLedger();
@@ -527,7 +566,7 @@ class App {
   /**
    * Brings back series watched to the end of what they had, once the provider adds more: at the next
    * episode, marked "New episodes" when they arrived after it was watched. Each series is only
-   * fetched again after the provider has changed it (PLAYBACK.md).
+   * fetched again after the provider has changed it, or to record it as watched (PLAYBACK.md).
    */
   async checkForNewEpisodes() {
     const p = this.provider, id = this.activeId;
@@ -538,15 +577,40 @@ class App {
       for (const entry of $state.snapshot(this.history) as P.LastWatched[]) {
         if (entry.live || P.isFilm(entry) || P.inContinue(entry, this.progressOf) || !entry.seriesId) continue;
         const show = this.seriesItem(entry.seriesId);
-        if (!show || !P.episodesDue(show, checks[show.id], Date.now())) continue;
+        if (!show) continue;
+        const key = favKey("series", show.id), mark = this.ledger.watched[key];
+        const recorded = mark?.[1] === true && mark[2] === P.current(entry).id;
+        if (recorded && !P.episodesDue(show, checks[show.id], Date.now())) continue;
         const data = await repo.seriesData(p, show, "network").catch(() => undefined);
         if (!data || this.provider !== p) continue;
         checks[show.id] = { added: show.added ?? 0, at: Date.now() };
         const next = P.episodeAfter(data.seasons, P.current(entry).id);
-        if (!next) continue;
+        if (!next) {
+          if (!recorded) this.setWatched(key, true, P.current(entry).id);
+          continue;
+        }
+        if (mark?.[1]) this.setWatched(key, false);
         // Never moved to the front: Continue watching leads with what was last watched.
         const back: P.LastWatched = { ...entry, items: next.episodes, index: next.index, newEpisodes: P.episodesNew(show, entry.at) };
         this.history = this.history.map((h) => (P.slot(h) === P.slot(entry) ? back : h));
+        this.write("history", this.history, 0);
+      }
+      // Watched series that Continue watching's short history has let go: brought back the same way.
+      for (const [key, [at, on, episode]] of Object.entries($state.snapshot(this.ledger.watched))) {
+        if (!on || !key.startsWith("series:")) continue;
+        const sid = key.slice("series:".length);
+        const show = this.seriesItem(sid);
+        if (!show || this.history.some((h) => h.seriesId === sid) || !P.episodesDue(show, checks[show.id], Date.now())) continue;
+        const data = await repo.seriesData(p, show, "network").catch(() => undefined);
+        if (!data || this.provider !== p) continue;
+        checks[show.id] = { added: show.added ?? 0, at: Date.now() };
+        const next = P.episodeAfter(data.seasons, episode);
+        if (!next) continue;
+        this.setWatched(key, false);
+        const back: P.LastWatched = {
+          heading: show.name, live: false, items: next.episodes, index: next.index, seriesId: sid, art: show.cover, at, newEpisodes: P.episodesNew(show, at),
+        };
+        this.history = [...this.history, back].sort((a, b) => b.at - a.at);
         this.write("history", this.history, 0);
       }
       backend.storeWrite(`episode-checks-${id}`, checks, 0);
@@ -654,6 +718,7 @@ class App {
         this.favourites = next.favourites;
         this.ledger = next.ledger;
         this.writeRecords(id, next);
+        this.seedWatched();
       }
       this.syncStatus = { busy: false, at: Date.now() };
     } catch (e) {

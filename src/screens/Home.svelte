@@ -81,8 +81,8 @@
   {/if}
   {#if favs.series.length || favs.films.length}
     <Row title="My List" onSeeAll={() => app.go({ name: "mylist" })}>
-      {#each favs.series as s (s.id)}<Card title={s.name} image={s.cover} fav={{ kind: "series", id: s.id }} onclick={() => openSeries(s)} />{/each}
-      {#each favs.films as f (f.id)}<Card title={f.name} image={f.logo} fav={{ kind: "film", id: f.id }} onclick={() => openFilm(f)} />{/each}
+      {#each favs.series as s (s.id)}<Card title={s.name} image={s.cover} fav={{ kind: "series", id: s.id }} dimmed onclick={() => openSeries(s)} />{/each}
+      {#each favs.films as f (f.id)}<Card title={f.name} image={f.logo} fav={{ kind: "film", id: f.id }} dimmed onclick={() => openFilm(f)} />{/each}
     </Row>
   {/if}
   {#if favs.live.length}

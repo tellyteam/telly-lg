@@ -28,7 +28,7 @@
   <section class="detail-hero">
     <div class="art"><div class="fade"><Art src={details?.backdrop ?? film.logo} title={film.name} /></div></div>
     <div class="copy">
-      <div class="eyebrow">Film · {film.group}</div>
+      <div class="eyebrow">Film · {film.group}{#if app.isWatched("film", film.id)} · ✓ Watched{/if}</div>
       <div class="title-xl">{film.name}</div>
       <div class="meta">
         {#if details?.year}<span>{details.year}</span>{/if}

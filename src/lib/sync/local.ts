@@ -3,18 +3,23 @@
  * back is turned into playable history using this device's own lists and login.
  */
 import * as P from "../playback";
-import { isSyncableId, isSyncableKey, keptAfterClear, slotOf, trim, type HistoryEntry, type Parcel } from "./parcel";
+import { isSyncableId, isSyncableKey, keptAfterClear, slotOf, trim, type HistoryEntry, type Parcel, type Watched } from "./parcel";
 
-/** What sync remembers beside the app's own records: when My List changed, and removals. */
+/**
+ * What sync remembers beside the app's own records: when My List changed, removals, and the record
+ * of watched titles (PLAYBACK.md), which is kept with or without sync.
+ */
 export interface Ledger {
   list: Record<string, [number, boolean]>;
   /** History slot → when it was taken out of Continue watching. */
   removed: Record<string, number>;
   /** When watch progress was last cleared, on any device (0 if never). */
   cleared: number;
+  /** `film:<id>` or `series:<id>` → [changed at, watched, episode watched up to]. */
+  watched: Record<string, Watched>;
 }
 
-export const emptyLedger = (): Ledger => ({ list: {}, removed: {}, cleared: 0 });
+export const emptyLedger = (): Ledger => ({ list: {}, removed: {}, cleared: 0, watched: {} });
 
 export interface Local {
   progress: Record<string, P.Progress>;
@@ -59,7 +64,9 @@ export function toParcel(local: Local, now: number): Parcel {
   for (const [k, v] of Object.entries(local.ledger.list)) if (isSyncableKey(k) && !v[1]) list[k] = v;
   for (const k of local.favourites) if (isSyncableKey(k)) list[k] = [local.ledger.list[k]?.[0] ?? 0, true];
 
-  return trim({ v: 1, at: now, progress, history: [...history.values()], list, cleared: local.ledger.cleared }, now);
+  const watched = Object.fromEntries(Object.entries(local.ledger.watched).filter(([k]) => isSyncableKey(k)));
+
+  return trim({ v: 1, at: now, progress, history: [...history.values()], list, cleared: local.ledger.cleared, watched }, now);
 }
 
 /** Turns a shared history entry into a playable one here; null if this device can't (yet). */
@@ -73,7 +80,9 @@ export async function apply(local: Local, merged: Parcel, resolve: Resolver, max
     if (!progress[k] || v[2] > (progress[k][2] ?? 0)) progress[k] = v;
   }
 
-  const ledger: Ledger = { list: { ...local.ledger.list }, removed: { ...local.ledger.removed }, cleared };
+  const watched = Object.fromEntries(Object.entries(local.ledger.watched).filter(([, v]) => keptAfterClear(v[0], cleared)));
+  for (const [k, v] of Object.entries(merged.watched)) if (!watched[k] || v[0] > watched[k][0]) watched[k] = v;
+  const ledger: Ledger = { list: { ...local.ledger.list }, removed: { ...local.ledger.removed }, cleared, watched };
   const on = new Set(local.favourites);
   for (const [k, [at, isOn]] of Object.entries(merged.list)) {
     const mine = ledger.list[k]?.[0] ?? (on.has(k) ? 0 : -1);

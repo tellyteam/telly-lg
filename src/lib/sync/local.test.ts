@@ -6,7 +6,7 @@ import type { Parcel } from "./parcel";
 
 const ch = (id: string, kind = "series"): Channel => ({ id, name: `E${id}`, group: "Season 1", url: `http://host/${kind}/user/secret/${id}.mkv` });
 const local = (l: Partial<Local>): Local => ({ progress: {}, history: [], favourites: [], ledger: emptyLedger(), ...l });
-const parcel = (p: Partial<Parcel>): Parcel => ({ v: 1, at: 0, progress: {}, history: [], list: {}, cleared: 0, ...p });
+const parcel = (p: Partial<Parcel>): Parcel => ({ v: 1, at: 0, progress: {}, history: [], list: {}, cleared: 0, watched: {}, ...p });
 
 describe("toParcel", () => {
   it("shares ids, positions and times, never URLs or names", () => {
@@ -27,14 +27,14 @@ describe("toParcel", () => {
   });
 
   it("shares removals until the slot is watched again", () => {
-    const removedOnly = toParcel(local({ ledger: { list: {}, removed: { "film:9": 50, "series:77": 50 }, cleared: 0 } }), 0);
+    const removedOnly = toParcel(local({ ledger: { list: {}, removed: { "film:9": 50, "series:77": 50 }, cleared: 0, watched: {} } }), 0);
     expect(removedOnly.history).toEqual([
       { kind: "film", id: "9", at: 50, removed: true },
       { kind: "series", id: "77", series: "77", at: 50, removed: true },
     ]);
     const watchedAgain = toParcel(local({
       history: [{ heading: P.FILM, live: false, index: 0, items: [ch("9", "movie")], at: 60 }],
-      ledger: { list: {}, removed: { "film:9": 50 }, cleared: 0 },
+      ledger: { list: {}, removed: { "film:9": 50 }, cleared: 0, watched: {} },
     }), 0);
     expect(watchedAgain.history).toEqual([{ kind: "film", id: "9", at: 60 }]);
   });
@@ -55,7 +55,7 @@ describe("apply", () => {
 
   it("adds and removes My List items by time, newest first", async () => {
     const next = await apply(
-      local({ favourites: ["film:1", "film:2"], ledger: { list: { "film:2": [10, true] }, removed: {}, cleared: 0 } }),
+      local({ favourites: ["film:1", "film:2"], ledger: { list: { "film:2": [10, true] }, removed: {}, cleared: 0, watched: {} } }),
       parcel({ list: { "film:1": [5, false], "film:2": [5, false], "film:3": [30, true] } }),
       resolveFilm,
     );
@@ -82,7 +82,7 @@ describe("apply", () => {
   });
 
   it("ignores an entry already removed here more recently", async () => {
-    const next = await apply(local({ ledger: { list: {}, removed: { "film:7": 99 }, cleared: 0 } }), parcel({ history: [{ kind: "film", id: "7", at: 30 }] }), resolveFilm);
+    const next = await apply(local({ ledger: { list: {}, removed: { "film:7": 99 }, cleared: 0, watched: {} } }), parcel({ history: [{ kind: "film", id: "7", at: 30 }] }), resolveFilm);
     expect(next.history).toEqual([]);
   });
 });

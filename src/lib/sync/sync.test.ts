@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { deriveKeys, formatCode, newCode, normaliseCode, open, providerTag, seal } from "./crypto";
 import { bundleJson, mergeBundles, parseBundle } from "./bundle";
 import { normaliseServer, syncIdentity, type Provider } from "../model";
-import { merge, parse, trim, TOMBSTONE_MS, type Parcel } from "./parcel";
+import { merge, parse, parseSection, sectionObject, trim, TOMBSTONE_MS, type Parcel } from "./parcel";
 import { pull, push, type RelayRequest, type Transport } from "./client";
 
 /** Shared with the Fire TV and iPad tests: every client must produce exactly these. */
@@ -75,7 +75,7 @@ describe("keys and sealing", () => {
   });
 });
 
-const parcel = (p: Partial<Parcel>): Parcel => ({ v: 1, at: 0, progress: {}, history: [], list: {}, cleared: 0, ...p });
+const parcel = (p: Partial<Parcel>): Parcel => ({ v: 1, at: 0, progress: {}, history: [], list: {}, cleared: 0, watched: {}, ...p });
 
 describe("parcels", () => {
   it("drop anything that could carry a login", () => {
@@ -132,6 +132,16 @@ describe("parcels", () => {
     }), now);
     expect(t.history).toEqual([{ kind: "film", id: "2", at: 0 }]);
     expect(t.list).toEqual({ "film:2": [0, true] });
+  });
+
+  it("carry the watched record: newest wins, and an older app's section removes nothing", () => {
+    const own = parcel({ watched: { "series:88": [10, true, "1234"], "film:5": [5, true, ""] } });
+    expect(parse(JSON.stringify({ v: 1, at: 1, ...sectionObject(own) }))!.watched).toEqual(own.watched);
+    const m = merge(own, [parcel({ watched: { "series:88": [20, false, ""], "film:6": [30, true, ""] } })], 100);
+    expect(m.watched["series:88"]).toEqual([20, false, ""]);
+    expect(Object.keys(m.watched).sort()).toEqual(["film:5", "film:6", "series:88"]);
+    expect(merge(own, [parseSection({}, 50)], 100).watched).toEqual(own.watched);
+    expect(Object.keys(merge(own, [parcel({ cleared: 7 })], 100).watched)).toEqual(["series:88"]);
   });
 });
 

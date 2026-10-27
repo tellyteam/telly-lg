@@ -58,7 +58,7 @@
   <section class="detail-hero">
     <div class="art"><div class="fade"><Art src={data?.details.backdrop ?? series.cover} title={series.name} /></div></div>
     <div class="copy">
-      <div class="eyebrow">Series · {series.group}</div>
+      <div class="eyebrow">Series · {series.group}{#if app.isWatched("series", series.id)} · ✓ Watched{/if}</div>
       <div class="title-xl">{series.name}</div>
       <div class="meta">
         {#if data?.details.year}<span>{data.details.year}</span>{/if}

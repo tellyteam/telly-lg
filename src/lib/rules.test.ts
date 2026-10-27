@@ -24,4 +24,19 @@ describe("PLAYBACK.md", () => {
   it.each(cases.nextPlayable)("next playable: $name", (c) => {
     expect(P.nextPlayable(c.index, c.items, (i) => c.downloaded.includes(i), c.online)).toBe(c.next);
   });
+  it.each(cases.seriesNext)("series next: $name", (c) => {
+    const seasons = c.seasons.map((ids, n) => ({ name: `Season ${n + 1}`, episodes: ids.map((id) => ({ id, name: id, group: "", url: `http://host/series/u/p/${id}.mkv` })) }));
+    const next = P.episodeAfter(seasons, c.episode);
+    expect(next && [seasons.findIndex((s) => s.episodes === next.episodes), next.index]).toEqual(c.next);
+  });
+  it.each(cases.myList)("My List: $name", (c) => {
+    expect(P.myListOrder(c.list, (k) => c.watched.includes(k))).toEqual(c.order);
+  });
+  it.each(cases.leavesMyList)("leaves My List: $name", (c) => {
+    expect(P.leavesMyList(c.kind)).toBe(c.leaves);
+  });
+  it("finds a film's id in its progress key", () => {
+    expect(P.filmId("movie/4567.mkv")).toBe("4567");
+    expect(P.filmId("series/1234.mkv")).toBeNull();
+  });
 });

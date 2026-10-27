@@ -25,11 +25,16 @@ export interface Parcel {
   list: Record<string, [number, boolean]>;
   /** When watch progress was last cleared (0 if never): older progress and history are dropped everywhere. */
   cleared: number;
+  /** `film:<id>` or `series:<id>` → [changed at, watched, episode watched up to ("" for a film)] (PLAYBACK.md, Watched titles). */
+  watched: Record<string, Watched>;
 }
+
+export type Watched = [number, boolean, string];
 
 export const MAX_PROGRESS = 2000;
 export const MAX_HISTORY = 40;
 export const MAX_LIST = 2000;
+export const MAX_WATCHED = 2000;
 /** Removals are shared for this long, then forgotten. */
 export const TOMBSTONE_MS = 90 * 86_400_000;
 
@@ -77,7 +82,12 @@ export function parseSection(raw: any, at: number): Parcel {
   for (const [k, v] of Object.entries(raw?.list ?? {})) {
     if (isSyncableKey(k) && Array.isArray(v) && v.length === 2 && isTime(v[0]) && typeof v[1] === "boolean") list[k] = [v[0], v[1]];
   }
-  return { v: 1, at, progress, history, list, cleared: isTime(raw?.cleared) ? raw.cleared : 0 };
+  const watched: Parcel["watched"] = {};
+  for (const [k, v] of Object.entries(raw?.watched ?? {})) {
+    if (isSyncableKey(k) && Array.isArray(v) && v.length === 3 && isTime(v[0]) && typeof v[1] === "boolean" && typeof v[2] === "string"
+      && (v[2] === "" || isSyncableId(v[2]))) watched[k] = [v[0], v[1], v[2]];
+  }
+  return { v: 1, at, progress, history, list, cleared: isTime(raw?.cleared) ? raw.cleared : 0, watched };
 }
 
 const newestFirst = <T>(entries: [string, T][], at: (t: T) => number, max: number) =>
@@ -100,6 +110,7 @@ export function trim(p: Parcel, now: number): Parcel {
     history,
     list: newestFirst(Object.entries(p.list).filter(([, v]) => fresh(v[0], !v[1])), (v) => v[0], MAX_LIST),
     cleared: p.cleared,
+    watched: newestFirst(Object.entries(p.watched).filter(([, v]) => fresh(v[0], !v[1]) && keptAfterClear(v[0], p.cleared)), (v) => v[0], MAX_WATCHED),
   };
 }
 
@@ -110,21 +121,23 @@ export function trim(p: Parcel, now: number): Parcel {
 export function merge(own: Parcel, others: Parcel[], now: number): Parcel {
   const progress = { ...own.progress };
   const list = { ...own.list };
+  const watched = { ...own.watched };
   const history = new Map(own.history.map((h) => [slotOf(h), h]));
   let cleared = own.cleared;
   for (const p of others) {
     cleared = Math.max(cleared, p.cleared);
     for (const [k, v] of Object.entries(p.progress)) if (!progress[k] || v[2] > progress[k][2]) progress[k] = v;
     for (const [k, v] of Object.entries(p.list)) if (!list[k] || v[0] > list[k][0]) list[k] = v;
+    for (const [k, v] of Object.entries(p.watched)) if (!watched[k] || v[0] > watched[k][0]) watched[k] = v;
     for (const h of p.history) {
       const mine = history.get(slotOf(h));
       if (!mine || h.at > mine.at) history.set(slotOf(h), h);
     }
   }
-  return trim({ v: 1, at: now, progress, history: [...history.values()], list, cleared }, now);
+  return trim({ v: 1, at: now, progress, history: [...history.values()], list, cleared, watched }, now);
 }
 
 /** A section as it's written inside a version 2 parcel: without `v` and `at`. */
 export function sectionObject(p: Parcel) {
-  return { progress: p.progress, history: p.history, list: p.list, cleared: p.cleared };
+  return { progress: p.progress, history: p.history, list: p.list, watched: p.watched, cleared: p.cleared };
 }

@@ -26,15 +26,15 @@
   {#if (tab === "all" || tab === "series") && favs.series.length + favs.films.length}
     <div class="grid">
       {#if tab === "all" || tab === "series"}
-        {#each favs.series as s (s.id)}<Card title={s.name} image={s.cover} fav={{ kind: "series", id: s.id }} onclick={() => app.go({ name: "seriesDetail", series: s })} />{/each}
+        {#each favs.series as s (s.id)}<Card title={s.name} image={s.cover} fav={{ kind: "series", id: s.id }} dimmed onclick={() => app.go({ name: "seriesDetail", series: s })} />{/each}
       {/if}
       {#if tab === "all"}
-        {#each favs.films as f (f.id)}<Card title={f.name} image={f.logo} fav={{ kind: "film", id: f.id }} onclick={() => app.go({ name: "filmDetail", film: f })} />{/each}
+        {#each favs.films as f (f.id)}<Card title={f.name} image={f.logo} fav={{ kind: "film", id: f.id }} dimmed onclick={() => app.go({ name: "filmDetail", film: f })} />{/each}
       {/if}
     </div>
   {/if}
   {#if tab === "films"}
-    <div class="grid">{#each favs.films as f (f.id)}<Card title={f.name} image={f.logo} fav={{ kind: "film", id: f.id }} onclick={() => app.go({ name: "filmDetail", film: f })} />{/each}</div>
+    <div class="grid">{#each favs.films as f (f.id)}<Card title={f.name} image={f.logo} fav={{ kind: "film", id: f.id }} dimmed onclick={() => app.go({ name: "filmDetail", film: f })} />{/each}</div>
   {/if}
   {#if (tab === "all" || tab === "live") && favs.live.length}
     {#if tab === "all"}<div class="results-label">Channels</div>{/if}

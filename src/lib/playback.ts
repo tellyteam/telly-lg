@@ -63,6 +63,21 @@ export function progressKey(url: string): string {
 /** Where to start: the saved position, unless barely started or already finished. */
 export const resumePosition = (p: Progress | undefined) => startAt(p?.[0], p?.[1]);
 
+/** A film's id from its progress key (`movie/123.mkv`); null for anything else. */
+export function filmId(key: string): string | null {
+  if (!key.startsWith("movie/")) return null;
+  const file = key.slice("movie/".length);
+  const dot = file.lastIndexOf(".");
+  return dot < 0 ? file : file.slice(0, dot);
+}
+
+/** My List with watched titles after the rest, each part in My List order. */
+export const myListOrder = (list: string[], isWatched: (key: string) => boolean) =>
+  [...list.filter((k) => !isWatched(k)), ...list.filter(isWatched)];
+
+/** Whether a title leaves My List once watched: a film does, a series stays. */
+export const leavesMyList = (kind: string) => kind === "film";
+
 // ---- History ("pick up where you left off") ----
 
 export const FILM = "Film";
