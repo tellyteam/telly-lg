@@ -43,6 +43,12 @@ describe("PLAYBACK.md", () => {
     expect(P.episodesDue(s, { added: 100, at: 0 }, day)).toBe(true);
     expect(P.episodesDue(s, { added: 99, at: 0 }, 1)).toBe(true);
   });
+  it.each(cases.newEpisodesBadge)("new episodes badge: $name", (c) => {
+    expect(P.episodesNew(c.episodeAdded, c.seriesAdded, c.watchedAtMs)).toBe(c.isNew);
+  });
+  it.each(cases.continueRecord)("Continue watching records: $name", (c) => {
+    expect(P.recordsWatching(c.playedMs, c.live)).toBe(c.records);
+  });
   it.each(cases.myList)("My List: $name", (c) => {
     expect(P.myListOrder(c.list, (k) => c.watched.includes(k))).toEqual(c.order);
   });

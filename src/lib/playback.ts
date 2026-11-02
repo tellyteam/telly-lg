@@ -8,6 +8,11 @@ import type { Channel, Season, Series } from "./model";
 export const PROMPT_MS = 60_000;
 /** Earlier than this, an item starts from the beginning. */
 const MIN_RESUME_MS = 15_000;
+/** Played for less than this, a film or episode leaves Continue watching as it was (an accidental press, say). */
+const MIN_PLAY_MS = 30_000;
+
+/** Whether what's playing now counts for Continue watching: live TV at once, anything else after 30 s played. */
+export const recordsWatching = (playedMs: number, live: boolean) => live || playedMs >= MIN_PLAY_MS;
 
 /** Seconds the next-episode prompt shows, or null when it doesn't. */
 export function promptSeconds(durationMs: number, positionMs: number, hasNext: boolean, autoNext: boolean, dismissed: boolean, live: boolean): number | null {
@@ -253,5 +258,11 @@ export function episodesDue(series: Series, checked: EpisodeCheck | undefined, n
   return (series.added ?? 0) !== checked.added || now - checked.at >= 86_400_000;
 }
 
-/** Whether what comes next arrived after it was watched (older history has no time, so never). */
-export const episodesNew = (series: Series, watchedAt: number) => watchedAt > 0 && !!series.added && series.added * 1000 > watchedAt;
+/**
+ * Whether what comes next arrived after the series was watched: by the episode's own added time, or
+ * the series' when the provider doesn't give it (older history has no time, so never).
+ */
+export function episodesNew(episodeAdded: number | undefined, seriesAdded: number | undefined, watchedAt: number): boolean {
+  const added = episodeAdded || seriesAdded || 0;
+  return watchedAt > 0 && added > 0 && added * 1000 > watchedAt;
+}

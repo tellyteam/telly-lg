@@ -1,5 +1,5 @@
 import * as backend from "./backend";
-import { syncIdentity, type Channel, type Group, type Provider, type Series } from "./model";
+import { syncIdentity, type Channel, type Group, type Provider, type Series, type SeriesData } from "./model";
 import * as P from "./playback";
 import * as repo from "./repo";
 import { syncOnce, leave as leaveRelay, SyncError } from "./sync/client";
@@ -533,12 +533,15 @@ class App {
     return this.history.find((h) => h.seriesId === seriesId);
   }
 
+  /** Continue watching follows once it has played long enough (the player calls [recordWatching]). */
   play(req: PlayRequest) {
     this.player = req;
-    this.recordWatching(req, req.index);
   }
 
-  /** Called when playback starts and on every episode change, so "pick up" always lands right. */
+  /**
+   * Called once something has played for 30 s (live TV at once), and again for each episode after,
+   * so "pick up" always lands right, and a brief play doesn't move it (PLAYBACK.md).
+   */
   recordWatching(req: PlayRequest, index: number) {
     this.history = P.remember(this.history, {
       heading: req.heading, live: req.live, index, items: req.items, seriesId: req.seriesId, art: req.art, at: Date.now(),
@@ -582,6 +585,14 @@ class App {
   private checkingEpisodes = false;
   /** Asked for while a check ran: another pass straight after it, for these series (or all). */
   private checkNext: Set<string> | "all" | null = null;
+  /** Episodes a series' page has just fetched, for its check to use instead of fetching again. */
+  private fetchedByPage = new Map<string, SeriesData>();
+
+  /** A series' page has fetched its episodes: Continue watching and its record follow straight away. */
+  seriesPageFetched(series: Series, data: SeriesData) {
+    this.fetchedByPage.set(series.id, data);
+    void this.checkForNewEpisodes(new Set([series.id]));
+  }
 
   /**
    * Brings back series watched to the end of what they had, once the provider adds more: at the next
@@ -622,8 +633,11 @@ class App {
       if (!show) continue;
       const key = favKey("series", show.id), mark = this.ledger.watched[key];
       const recorded = mark?.[1] === true && mark[2] === P.current(entry).id;
-      if (recorded && !P.episodesDue(show, checks[show.id], Date.now())) continue;
-      const data = await repo.seriesData(p, show, "network").catch(() => undefined);
+      // What the series' page fetched is used whether due or not: it costs nothing.
+      const page = this.fetchedByPage.get(show.id);
+      this.fetchedByPage.delete(show.id);
+      if (!page && recorded && !P.episodesDue(show, checks[show.id], Date.now())) continue;
+      const data = page ?? await repo.seriesData(p, show, "network").catch(() => undefined);
       if (!data || this.provider !== p) continue;
       checks[show.id] = { added: show.added ?? 0, at: Date.now() };
       const { next, upTo } = P.episodeAfterWatched(data.seasons, P.current(entry).id, watched);
@@ -640,7 +654,7 @@ class App {
       }
       if (mark?.[1]) this.setWatched(key, false);
       // Never moved to the front: Continue watching leads with what was last watched.
-      const back: P.LastWatched = { ...entry, items: next.episodes, index: next.index, newEpisodes: P.episodesNew(show, entry.at) };
+      const back: P.LastWatched = { ...entry, items: next.episodes, index: next.index, newEpisodes: P.episodesNew(next.episodes[next.index].added, show.added, entry.at) };
       this.history = this.history.map((h) => (P.slot(h) === P.slot(entry) ? back : h));
       this.write("history", this.history, 0);
     }
@@ -650,8 +664,10 @@ class App {
       const sid = key.slice("series:".length);
       if (only && !only.has(sid)) continue;
       const show = this.seriesItem(sid);
-      if (!show || this.history.some((h) => h.seriesId === sid) || !P.episodesDue(show, checks[show.id], Date.now())) continue;
-      const data = await repo.seriesData(p, show, "network").catch(() => undefined);
+      const page = this.fetchedByPage.get(sid);
+      this.fetchedByPage.delete(sid);
+      if (!show || this.history.some((h) => h.seriesId === sid) || (!page && !P.episodesDue(show, checks[show.id], Date.now()))) continue;
+      const data = page ?? await repo.seriesData(p, show, "network").catch(() => undefined);
       if (!data || this.provider !== p) continue;
       checks[show.id] = { added: show.added ?? 0, at: Date.now() };
       const { next, upTo } = P.episodeAfterWatched(data.seasons, episode, watched);
@@ -661,7 +677,7 @@ class App {
       }
       this.setWatched(key, false);
       const back: P.LastWatched = {
-        heading: show.name, live: false, items: next.episodes, index: next.index, seriesId: sid, art: show.cover, at, newEpisodes: P.episodesNew(show, at),
+        heading: show.name, live: false, items: next.episodes, index: next.index, seriesId: sid, art: show.cover, at, newEpisodes: P.episodesNew(next.episodes[next.index].added, show.added, at),
       };
       this.history = [...this.history, back].sort((a, b) => b.at - a.at);
       this.write("history", this.history, 0);

@@ -33,7 +33,14 @@
     // Saved copy first for an instant page, then the latest from the provider.
     repo.seriesData(p, series, "cache").then((d) => { if (!cancelled && d) { data = d; pickSeason(); } }).catch(() => {});
     repo.seriesData(p, series, "network")
-      .then((d) => { if (!cancelled && d) { const first = !data; data = d; if (first) pickSeason(); } })
+      .then((d) => {
+        if (cancelled || !d) return;
+        const first = !data;
+        data = d;
+        if (first) pickSeason();
+        // Continue watching and the watched record follow what the page fetched, straight away.
+        app.seriesPageFetched(series, d);
+      })
       .catch((e) => { if (!cancelled && !data) error = (e as Error).message; });
     return () => { cancelled = true; };
   });
@@ -101,7 +108,7 @@
         {@const current = resumeAt?.season === seasonIndex && resumeAt.episode === i}
         <div class="ep" class:current role="button" tabindex="0" title={ep.name}
           onclick={() => play(seasonIndex, i)} onkeydown={(e) => e.key === "Enter" && play(seasonIndex, i)}>
-          <div class="thumb"><Art src={ep.logo} title={ep.name + series.name} />
+          <div class="thumb"><Art src={ep.logo} fallback={series.cover} title={ep.name + series.name} />
             {#if p && P.finished(p)}<div class="done">✓</div>{/if}
             {#if p && !P.finished(p)}<div class="bar"><div class="progress"><i style:width="{P.fraction(p) * 100}%"></i></div></div>{/if}
           </div>

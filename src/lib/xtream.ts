@@ -175,6 +175,7 @@ export function seasons(server: URL, u: string, p: string, info: Json): Season[]
         group: `Season ${seasonName}`,
         logo: image,
         url: streamUrl(server, "series", u, p, id, str(e.container_extension) ?? "mp4"),
+        added: Number(str(e.added)) || 0,
         plot: isObj(e.info) ? str(e.info.plot) : undefined,
         runtime: isObj(e.info) ? runtime(e.info) : undefined,
       }];

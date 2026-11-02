@@ -40,6 +40,10 @@
   let box = $state({ w: 0, h: 0, vw: 0, vh: 0 });
   let nextDismissed = $state(false);
   let lastSaved = 0;
+  // Time this item has actually played (ms), and whether Continue watching has it yet (PLAYBACK.md).
+  let played = 0;
+  let lastTime: number | undefined;
+  let recorded = false;
   let wakeLock: WakeLockSentinel | null = null;
 
   const nowMs = () => video.currentTime * 1000;
@@ -65,6 +69,11 @@
   async function load(i: number, startAt?: number) {
     const id = ++loadId;
     saveProgress();
+    // Live TV counts straight away; anything else once it has played for 30 s (countPlayed).
+    played = 0;
+    lastTime = undefined;
+    recorded = false;
+    if (live) record(i);
     engine?.destroy();
     engine = undefined;
     error = null;
@@ -104,7 +113,6 @@
   function go(i: number, startAt?: number) {
     if (i < 0 || i >= request.items.length) return;
     index = i;
-    app.recordWatching(request, i);
     if (live) {
       // Each channel keeps its own aspect.
       aspect = app.aspectFor(`live:${request.items[i].id}`);
@@ -141,6 +149,20 @@
     time = nowMs();
     duration = totalMs();
     saveProgress();
+    countPlayed();
+  }
+
+  /** Adds up time actually played, not seeking, until it's long enough to count for Continue watching. */
+  function countPlayed() {
+    const t = nowMs();
+    if (!recorded && playing && lastTime !== undefined && t - lastTime > 0 && t - lastTime < 2000) played += t - lastTime;
+    lastTime = t;
+    if (!recorded && P.recordsWatching(played, live)) record(index);
+  }
+
+  function record(i: number) {
+    recorded = true;
+    app.recordWatching(request, i);
   }
 
   function onended() {
