@@ -228,10 +228,29 @@ export function episodeAfter(seasons: Season[], watchedId: string): { episodes: 
   return null;
 }
 
-/** Whether a series needs fetching again: after the provider changes it, or daily if it doesn't say. */
+/**
+ * Like [episodeAfter], past episodes already watched (on another device, say): where watching
+ * continues, or null when everything after [watchedId] is watched too. [upTo] is the last of those
+ * watched in a row from [watchedId], what the series is then watched up to.
+ */
+export function episodeAfterWatched(seasons: Season[], watchedId: string, watched: (e: Channel) => boolean): { next: { episodes: Channel[]; index: number } | null; upTo: string } {
+  let upTo = watchedId;
+  for (;;) {
+    const next = episodeAfter(seasons, upTo);
+    if (!next) return { next: null, upTo };
+    const episode = next.episodes[next.index];
+    if (!watched(episode)) return { next, upTo };
+    upTo = episode.id;
+  }
+}
+
+/**
+ * Whether a series needs fetching again: after the provider changes it, and at least daily, as a
+ * provider's list can show a series' change hours after the series does.
+ */
 export function episodesDue(series: Series, checked: EpisodeCheck | undefined, now: number): boolean {
   if (!checked) return true;
-  return series.added ? series.added !== checked.added : now - checked.at >= 86_400_000;
+  return (series.added ?? 0) !== checked.added || now - checked.at >= 86_400_000;
 }
 
 /** Whether what comes next arrived after it was watched (older history has no time, so never). */

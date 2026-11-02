@@ -29,6 +29,20 @@ describe("PLAYBACK.md", () => {
     const next = P.episodeAfter(seasons, c.episode);
     expect(next && [seasons.findIndex((s) => s.episodes === next.episodes), next.index]).toEqual(c.next);
   });
+  it.each(cases.seriesNextWatched)("series next, past watched: $name", (c) => {
+    const seasons = c.seasons.map((ids, n) => ({ name: `Season ${n + 1}`, episodes: ids.map((id) => ({ id, name: id, group: "", url: `http://host/series/u/p/${id}.mkv` })) }));
+    const { next, upTo } = P.episodeAfterWatched(seasons, c.episode, (e) => c.watched.includes(e.id));
+    expect(next && [seasons.findIndex((s) => s.episodes === next.episodes), next.index]).toEqual(c.next);
+    expect(upTo).toBe(c.upTo);
+  });
+  it("fetches a series daily even when the list says nothing changed", () => {
+    const s = { id: "1", name: "S", group: "", added: 100 };
+    const day = 86_400_000;
+    expect(P.episodesDue(s, undefined, 0)).toBe(true);
+    expect(P.episodesDue(s, { added: 100, at: 0 }, day - 1)).toBe(false);
+    expect(P.episodesDue(s, { added: 100, at: 0 }, day)).toBe(true);
+    expect(P.episodesDue(s, { added: 99, at: 0 }, 1)).toBe(true);
+  });
   it.each(cases.myList)("My List: $name", (c) => {
     expect(P.myListOrder(c.list, (k) => c.watched.includes(k))).toEqual(c.order);
   });

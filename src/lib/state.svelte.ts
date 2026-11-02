@@ -4,7 +4,7 @@ import * as P from "./playback";
 import * as repo from "./repo";
 import { syncOnce, leave as leaveRelay, SyncError } from "./sync/client";
 import { deriveKeys, hex, newCode, newDeviceId, normaliseCode, providerTag, randomBytes } from "./sync/crypto";
-import { apply as applySync, emptyLedger, toParcel, type Ledger, type Local } from "./sync/local";
+import { apply as applySync, emptyLedger, seriesChanged, toParcel, type Ledger, type Local } from "./sync/local";
 import type { HistoryEntry } from "./sync/parcel";
 
 export type Route =
@@ -221,7 +221,8 @@ class App {
   private async useProvider(p: Provider) {
     this.provider = p;
     backend.setAllowCleartext(p.allowCleartext);
-    void this.loadSaved(p).then(() => this.refresh()).then(() => this.syncNow());
+    // Other devices' changes before the lists' episode check, so episodes watched there count.
+    void this.loadSaved(p).then(() => this.syncNow()).then(() => this.refresh());
   }
 
   /** The saved lists, one at a time (films and series first, for Home), the screen updating between. */
@@ -579,61 +580,93 @@ class App {
   }
 
   private checkingEpisodes = false;
+  /** Asked for while a check ran: another pass straight after it, for these series (or all). */
+  private checkNext: Set<string> | "all" | null = null;
 
   /**
    * Brings back series watched to the end of what they had, once the provider adds more: at the next
-   * episode, marked "New episodes" when they arrived after it was watched. Each series is only
-   * fetched again after the provider has changed it, or to record it as watched (PLAYBACK.md).
+   * episode not yet watched, marked "New episodes" when they arrived after it was watched. Each
+   * series is only fetched again after the provider has changed it, daily, or to record it as
+   * watched (PLAYBACK.md). [only]: just these series, the ones a sync changed. Asked for while a
+   * check runs, it runs once more after it, rather than twice at once.
    */
-  async checkForNewEpisodes() {
-    const p = this.provider, id = this.activeId;
-    if (!p || !id || this.checkingEpisodes || !this.series) return;
+  async checkForNewEpisodes(only?: Set<string>) {
+    if (this.checkingEpisodes) {
+      this.checkNext = !only || this.checkNext === "all" ? "all" : new Set([...(this.checkNext ?? []), ...only]);
+      return;
+    }
     this.checkingEpisodes = true;
     try {
-      const checks = (await backend.storeRead<Record<string, P.EpisodeCheck>>(`episode-checks-${id}`)) ?? {};
-      for (const entry of $state.snapshot(this.history) as P.LastWatched[]) {
-        if (entry.live || P.isFilm(entry) || P.inContinue(entry, this.progressOf) || !entry.seriesId) continue;
-        const show = this.seriesItem(entry.seriesId);
-        if (!show) continue;
-        const key = favKey("series", show.id), mark = this.ledger.watched[key];
-        const recorded = mark?.[1] === true && mark[2] === P.current(entry).id;
-        if (recorded && !P.episodesDue(show, checks[show.id], Date.now())) continue;
-        const data = await repo.seriesData(p, show, "network").catch(() => undefined);
-        if (!data || this.provider !== p) continue;
-        checks[show.id] = { added: show.added ?? 0, at: Date.now() };
-        const next = P.episodeAfter(data.seasons, P.current(entry).id);
-        if (!next) {
-          if (!recorded) this.setWatched(key, true, P.current(entry).id);
-          continue;
-        }
-        if (mark?.[1]) this.setWatched(key, false);
-        // Never moved to the front: Continue watching leads with what was last watched.
-        const back: P.LastWatched = { ...entry, items: next.episodes, index: next.index, newEpisodes: P.episodesNew(show, entry.at) };
-        this.history = this.history.map((h) => (P.slot(h) === P.slot(entry) ? back : h));
-        this.write("history", this.history, 0);
+      let series = only;
+      for (;;) {
+        await this.checkEpisodes(series);
+        if (!this.checkNext) break;
+        series = this.checkNext === "all" ? undefined : this.checkNext;
+        this.checkNext = null;
       }
-      // Watched series that Continue watching's short history has let go: brought back the same way.
-      for (const [key, [at, on, episode]] of Object.entries($state.snapshot(this.ledger.watched))) {
-        if (!on || !key.startsWith("series:")) continue;
-        const sid = key.slice("series:".length);
-        const show = this.seriesItem(sid);
-        if (!show || this.history.some((h) => h.seriesId === sid) || !P.episodesDue(show, checks[show.id], Date.now())) continue;
-        const data = await repo.seriesData(p, show, "network").catch(() => undefined);
-        if (!data || this.provider !== p) continue;
-        checks[show.id] = { added: show.added ?? 0, at: Date.now() };
-        const next = P.episodeAfter(data.seasons, episode);
-        if (!next) continue;
-        this.setWatched(key, false);
-        const back: P.LastWatched = {
-          heading: show.name, live: false, items: next.episodes, index: next.index, seriesId: sid, art: show.cover, at, newEpisodes: P.episodesNew(show, at),
-        };
-        this.history = [...this.history, back].sort((a, b) => b.at - a.at);
-        this.write("history", this.history, 0);
-      }
-      backend.storeWrite(`episode-checks-${id}`, checks, 0);
     } finally {
       this.checkingEpisodes = false;
     }
+  }
+
+  private async checkEpisodes(only?: Set<string>) {
+    const p = this.provider, id = this.activeId;
+    if (!p || !id || !this.series) return;
+    // Episodes finished here or on a linked device count alike.
+    const watched = (e: Channel) => { const pr = this.progressOf(e.url); return !!pr && P.finished(pr); };
+    const checks = (await backend.storeRead<Record<string, P.EpisodeCheck>>(`episode-checks-${id}`)) ?? {};
+    for (const entry of $state.snapshot(this.history) as P.LastWatched[]) {
+      if (entry.live || P.isFilm(entry) || P.inContinue(entry, this.progressOf) || !entry.seriesId) continue;
+      if (only && !only.has(entry.seriesId)) continue;
+      const show = this.seriesItem(entry.seriesId);
+      if (!show) continue;
+      const key = favKey("series", show.id), mark = this.ledger.watched[key];
+      const recorded = mark?.[1] === true && mark[2] === P.current(entry).id;
+      if (recorded && !P.episodesDue(show, checks[show.id], Date.now())) continue;
+      const data = await repo.seriesData(p, show, "network").catch(() => undefined);
+      if (!data || this.provider !== p) continue;
+      checks[show.id] = { added: show.added ?? 0, at: Date.now() };
+      const { next, upTo } = P.episodeAfterWatched(data.seasons, P.current(entry).id, watched);
+      if (!next) {
+        if (!(mark?.[1] === true && mark[2] === upTo)) this.setWatched(key, true, upTo);
+        // Watched further on another device: Continue watching's entry follows, still out of the row.
+        const season = upTo !== P.current(entry).id ? data.seasons.find((s) => s.episodes.some((e) => e.id === upTo)) : undefined;
+        if (season) {
+          const on: P.LastWatched = { ...entry, items: season.episodes, index: season.episodes.findIndex((e) => e.id === upTo), newEpisodes: undefined };
+          this.history = this.history.map((h) => (P.slot(h) === P.slot(entry) ? on : h));
+          this.write("history", this.history, 0);
+        }
+        continue;
+      }
+      if (mark?.[1]) this.setWatched(key, false);
+      // Never moved to the front: Continue watching leads with what was last watched.
+      const back: P.LastWatched = { ...entry, items: next.episodes, index: next.index, newEpisodes: P.episodesNew(show, entry.at) };
+      this.history = this.history.map((h) => (P.slot(h) === P.slot(entry) ? back : h));
+      this.write("history", this.history, 0);
+    }
+    // Watched series that Continue watching's short history has let go: brought back the same way.
+    for (const [key, [at, on, episode]] of Object.entries($state.snapshot(this.ledger.watched))) {
+      if (!on || !key.startsWith("series:")) continue;
+      const sid = key.slice("series:".length);
+      if (only && !only.has(sid)) continue;
+      const show = this.seriesItem(sid);
+      if (!show || this.history.some((h) => h.seriesId === sid) || !P.episodesDue(show, checks[show.id], Date.now())) continue;
+      const data = await repo.seriesData(p, show, "network").catch(() => undefined);
+      if (!data || this.provider !== p) continue;
+      checks[show.id] = { added: show.added ?? 0, at: Date.now() };
+      const { next, upTo } = P.episodeAfterWatched(data.seasons, episode, watched);
+      if (!next) {
+        if (upTo !== episode) this.setWatched(key, true, upTo);
+        continue;
+      }
+      this.setWatched(key, false);
+      const back: P.LastWatched = {
+        heading: show.name, live: false, items: next.episodes, index: next.index, seriesId: sid, art: show.cover, at, newEpisodes: P.episodesNew(show, at),
+      };
+      this.history = [...this.history, back].sort((a, b) => b.at - a.at);
+      this.write("history", this.history, 0);
+    }
+    backend.storeWrite(`episode-checks-${id}`, checks, 0);
   }
 
   // ---- Sync ----
@@ -730,12 +763,15 @@ class App {
         }
         // Playback may have started meanwhile; its own saves win.
         if (this.player) continue;
+        const changed = seriesChanged(local, next);
         this.progress = next.progress;
         this.history = next.history;
         this.favourites = next.favourites;
         this.ledger = next.ledger;
         this.writeRecords(id, next);
         this.seedWatched();
+        // A series watched to the end on another device is recorded here without waiting for a refresh.
+        if (changed.size) void this.checkForNewEpisodes(changed);
       }
       this.syncStatus = { busy: false, at: Date.now() };
     } catch (e) {
@@ -768,7 +804,10 @@ class App {
     const s = e.series ? this.seriesItem(e.series) : undefined;
     const p = this.provider;
     if (!s || !p) return null;
-    const data = (await repo.seriesData(p, s, "cache").catch(() => undefined)) ?? (await repo.seriesData(p, s, "network"));
+    const saved = await repo.seriesData(p, s, "cache").catch(() => undefined);
+    // A copy saved before that episode arrived doesn't have it: the series is fetched again.
+    const has = saved?.seasons.some((season) => season.episodes.some((ep) => ep.id === e.id));
+    const data = has ? saved : ((await repo.seriesData(p, s, "network").catch(() => undefined)) ?? saved);
     for (const season of data?.seasons ?? []) {
       const index = season.episodes.findIndex((ep) => ep.id === e.id);
       if (index >= 0) return { heading: s.name, live: false, index, items: season.episodes, seriesId: s.id, art: s.cover, at: e.at };

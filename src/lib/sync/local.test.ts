@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Channel } from "../model";
 import * as P from "../playback";
-import { apply, emptyLedger, toParcel, type Local } from "./local";
+import { apply, emptyLedger, seriesChanged, toParcel, type Local } from "./local";
 import type { Parcel } from "./parcel";
 
 const ch = (id: string, kind = "series"): Channel => ({ id, name: `E${id}`, group: "Season 1", url: `http://host/${kind}/user/secret/${id}.mkv` });
@@ -108,5 +108,17 @@ describe("clearing progress", () => {
     const p = toParcel(local({ progress: { "series/1.mkv": [5, 10, 20] }, ledger: { ...emptyLedger(), cleared: 30 } }), 50);
     expect(p.cleared).toBe(30);
     expect(p.progress).toEqual({});
+  });
+});
+
+describe("seriesChanged", () => {
+  it("names only the series whose entry, episode progress or watched record a sync changed", () => {
+    const a: P.LastWatched = { heading: "A", live: false, index: 0, items: [ch("1"), ch("2")], seriesId: "a", at: 1 };
+    const b: P.LastWatched = { heading: "B", live: false, index: 0, items: [ch("3")], seriesId: "b", at: 1 };
+    const c: P.LastWatched = { heading: "C", live: false, index: 0, items: [ch("4")], seriesId: "c", at: 1 };
+    const old = local({ progress: { "series/2.mkv": [1, 10, 1] }, history: [a, b, c], ledger: { ...emptyLedger(), watched: { "series:d": [1, false, ""] } } });
+    const next = local({ progress: { "series/2.mkv": [9, 10, 2] }, history: [a, b, { ...c, at: 2 }], ledger: { ...emptyLedger(), watched: { "series:d": [2, true, "9"] } } });
+    expect([...seriesChanged(old, next)].sort()).toEqual(["a", "c", "d"]);
+    expect(seriesChanged(next, next).size).toBe(0);
   });
 });

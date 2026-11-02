@@ -28,6 +28,27 @@ export interface Local {
   ledger: Ledger;
 }
 
+/**
+ * The series a sync changed something of: their Continue watching entry, progress on one of its
+ * episodes, or their watched record. Only these need the episode check after it.
+ */
+export function seriesChanged(old: Local, next: Local): Set<string> {
+  const ids = new Set<string>();
+  const before = new Map(old.history.map((h) => [P.slot(h), JSON.stringify(h)]));
+  for (const h of next.history) {
+    if (h.live || P.isFilm(h) || !h.seriesId) continue;
+    const progressChanged = h.items.some((e) => {
+      const k = P.progressKey(e.url);
+      return JSON.stringify(next.progress[k]) !== JSON.stringify(old.progress[k]);
+    });
+    if (before.get(P.slot(h)) !== JSON.stringify(h) || progressChanged) ids.add(h.seriesId);
+  }
+  for (const [k, v] of Object.entries(next.ledger.watched)) {
+    if (k.startsWith("series:") && JSON.stringify(old.ledger.watched[k]) !== JSON.stringify(v)) ids.add(k.slice("series:".length));
+  }
+  return ids;
+}
+
 /** The sync form of a history entry; null for ones that can't be shared (no ids, or M3U URLs). */
 export function entryOf(h: P.LastWatched): HistoryEntry | null {
   const id = P.current(h).id;
