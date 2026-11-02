@@ -3,6 +3,7 @@
   import type { Provider } from "../lib/model";
   import { app } from "../lib/state.svelte";
   import Wordmark from "../components/Wordmark.svelte";
+  import PlainHttpSwitch from "../components/PlainHttpSwitch.svelte";
 
   /**
    * Signing in, one thing at a time, so the TV's keyboard stays up for one field and OK (or the
@@ -182,10 +183,8 @@
           <button type="button" class="line" onclick={() => change("url")}><div>Playlist address<small class="long">{url}</small></div><span class="edit">Change</span></button>
         {/if}
         <div class="field"><label for="name">Name (optional)</label><input id="name" bind:value={name} placeholder="Your provider" autocomplete="off" spellcheck="false" /></div>
-        <div class="line">
-          <div>Allow plain HTTP<small>{plainHttp ? "This address uses plain HTTP: turn this on if your provider has no HTTPS." : "Only if your provider has no HTTPS. Traffic to it won't be encrypted."}</small></div>
-          <button type="button" class="switch" class:on={allowCleartext} aria-label="Allow plain HTTP" onclick={() => (allowCleartext = !allowCleartext)}></button>
-        </div>
+        <PlainHttpSwitch title="Allow plain HTTP" on={allowCleartext} onchange={(on) => (allowCleartext = on)}
+          hint={plainHttp ? "This address uses plain HTTP: turn this on only if your provider has no HTTPS. Your login and what you watch would be sent unencrypted." : undefined} />
       </div>
       {#if error}<div class="error">{error}</div>{/if}
       <div class="btns">

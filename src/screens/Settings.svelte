@@ -5,6 +5,7 @@
   import { formatCode } from "../lib/sync/crypto";
   import { syncLink } from "../lib/sync/link";
   import QrCode from "../components/QrCode.svelte";
+  import PlainHttpSwitch from "../components/PlainHttpSwitch.svelte";
 
   let confirmRemove = $state(false);
   let clearing = $state(false);
@@ -64,8 +65,7 @@
         <div class="btns"><button class="btn small" onclick={() => app.go({ name: "setup", adding: true })}>Add another provider</button>
           {#if confirmRemove}<button class="btn small" onclick={() => { confirmRemove = false; if (app.activeId) void app.removeProvider(app.activeId); }}>Remove {p.name}</button><button class="btn small" onclick={() => (confirmRemove = false)}>Cancel</button>
           {:else}<button class="btn small" onclick={() => (confirmRemove = true)}>Remove {p.name}…</button>{/if}</div></div>
-      <div class="line"><div>Allow plain HTTP for this provider<small>Only if it has no HTTPS. Traffic to it won't be encrypted.</small></div>
-        <button class="switch" class:on={p.allowCleartext} aria-label="Allow plain HTTP" onclick={() => app.setAllowCleartext(!p.allowCleartext)}></button></div>
+      <PlainHttpSwitch title="Allow plain HTTP for this provider" on={p.allowCleartext} onchange={(on) => app.setAllowCleartext(on)} />
     </div>
     <div class="panel"><h4>Playback</h4>
       <div class="line"><div>Play the next episode automatically<small>When the credits start, a countdown offers the next one</small></div>
@@ -89,7 +89,7 @@
         {/if}
         <div class="line"><div>Provider logins are never shared<small>Sign in on each device.</small></div></div>
       {:else}
-        <div class="line"><div>Pick up where you left off on your other devices<small>Shares progress, Continue watching and My List, end-to-end encrypted. Provider logins are never shared.</small></div>
+        <div class="line"><div>Pick up where you left off on your other devices<small>Shares progress, Continue watching and My List, end-to-end encrypted. Provider logins are never shared, and the relay keeps no logs.</small></div>
           <div class="btns"><button class="btn small primary" disabled={linking} onclick={() => link()}>Start syncing</button>
             <button class="btn small" disabled={linking} onclick={() => (joining = !joining)}>I have a code</button></div></div>
         {#if joining}
