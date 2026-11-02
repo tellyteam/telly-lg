@@ -32,6 +32,7 @@ export class SyncError extends Error {}
 
 function check(res: RelayResponse) {
   if (res.status === 401) throw new SyncError("This sync code is no longer valid on the relay.");
+  if (res.status === 402) throw new SyncError("Sync needs telly Plus for this household. It can be bought on an iPhone, iPad or Mac linked to it.");
   if (res.status === 409) throw new SyncError("Too many devices are linked to this code (12 at most).");
   if (res.status < 200 || res.status >= 300) throw new SyncError(`The sync relay answered ${res.status}.`);
 }
