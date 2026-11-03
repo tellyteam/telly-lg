@@ -70,6 +70,11 @@ async function get(url: string, signal?: AbortSignal): Promise<Response> {
     if ((e as Error).name === "AbortError") throw e;
     throw new Error(`Couldn't reach ${host(url)}.`);
   }
+  // A web app can't see a redirect before it's followed, so one to plain HTTP is only caught here,
+  // and its answer isn't used. (The dev relay refuses it before it goes.)
+  if (isWebOS && res.url.startsWith("http:") && !cleartext) {
+    throw new Error(`${host(url)} redirected to unencrypted HTTP, which is turned off. If your provider has no HTTPS, allow it in Settings.`);
+  }
   if (res.status === 502 || res.status === 403) throw new Error(await res.text());
   if (!res.ok) throw new Error(`${host(url)} returned HTTP ${res.status}.`);
   return res;

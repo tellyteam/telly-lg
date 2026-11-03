@@ -29,12 +29,23 @@ export function devRelay(): Plugin {
       res.writeHead(403, cors).end("Plain HTTP is turned off for this provider");
       return;
     }
-    const get = (range?: string) => fetch(target, { headers: { "User-Agent": "telly/dev", ...(range ? { Range: range } : {}) }, redirect: "follow" });
+    // Redirects are followed here, so that one to plain HTTP can be refused before it goes.
+    const get = async (range?: string) => {
+      let at = target;
+      for (let hop = 0; ; hop++) {
+        const up = await fetch(at, { headers: { "User-Agent": "telly/dev", ...(range ? { Range: range } : {}) }, redirect: "manual" });
+        const next = up.status >= 300 && up.status < 400 ? up.headers.get("location") : null;
+        if (!next || hop === 5) return up;
+        at = new URL(next, at);
+        if (!/^https?:$/.test(at.protocol) || (at.protocol === "http:" && !flags.includes("c"))) throw new Error("plain");
+      }
+    };
     let up: Response;
     try {
       up = await get(req.headers.range);
-    } catch {
-      res.writeHead(502, cors).end(`${target.host} couldn't be reached`);
+    } catch (e) {
+      if ((e as Error).message === "plain") res.writeHead(403, cors).end(`${target.host} redirected to plain HTTP, which is turned off for this provider`);
+      else res.writeHead(502, cors).end(`${target.host} couldn't be reached`);
       return;
     }
     const type = up.headers.get("content-type") ?? "";
