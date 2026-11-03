@@ -57,7 +57,7 @@
     <div class="panel"><h4>{app.providers.length > 1 ? "Providers" : "Provider"}</h4>
       {#each app.providers as saved (saved.id)}
         {@const inUse = saved.id === app.activeId}
-        <div class="line"><div>{inUse && app.providers.length > 1 ? "✓ " : ""}{saved.provider.name}<small>{saved.provider.kind === "xtream" ? "Xtream Codes" : "M3U playlist"} · login kept {isWebOS ? "on this TV" : "in this browser (development)"}</small></div>
+        <div class="line"><div>{inUse && app.providers.length > 1 ? "✓ " : ""}{saved.provider.name}<small>{saved.provider.kind === "xtream" ? "Username and password" : "Playlist link"} · login kept {isWebOS ? "on this TV" : "in this browser (development)"}</small></div>
           <div class="btns">{#if !inUse}<button class="btn small" onclick={() => app.switchProvider(saved.id)}>Use</button>{/if}
             <button class="btn small" onclick={() => app.go({ name: "setup", editing: saved.id })}>Edit</button></div></div>
       {/each}

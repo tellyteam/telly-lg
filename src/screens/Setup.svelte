@@ -149,8 +149,8 @@
       <p class="lead">{adding ? "Add another provider." : "Sign in with the details your TV provider gave you. telly doesn't come with any channels."}</p>
       <p class="hint">What did your provider give you?</p>
       <div class="choices">
-        <button type="button" class="choice" data-autofocus onclick={() => choose("xtream")}><b>Xtream Codes</b><small>A server address, username and password</small></button>
-        <button type="button" class="choice" onclick={() => choose("m3u")}><b>M3U playlist</b><small>One playlist link</small></button>
+        <button type="button" class="choice" data-autofocus onclick={() => choose("xtream")}><b>Username and password</b><small>With a server address</small></button>
+        <button type="button" class="choice" onclick={() => choose("m3u")}><b>Playlist link</b><small>One web address, often ending .m3u</small></button>
       </div>
       {#if inApp && app.provider}<div class="btns"><button class="btn" type="button" onclick={() => app.goBack() || app.go({ name: "home" })}>Cancel</button></div>{/if}
       {#if onBack}<div class="btns"><button class="btn" type="button" onclick={onBack}>Back</button></div>{/if}
