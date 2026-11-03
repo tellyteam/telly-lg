@@ -5,6 +5,7 @@ import { bundleJson, mergeBundles, parseBundle } from "./bundle";
 import { normaliseServer, syncIdentity, type Provider } from "../model";
 import { merge, parse, parseSection, sectionObject, trim, TOMBSTONE_MS, type Parcel } from "./parcel";
 import { pull, push, type RelayRequest, type Transport } from "./client";
+import { joinLink, newJoin, openJoin, parseJoinLink, sealJoin } from "./join";
 
 /** Shared with the Fire TV and iPad tests: every client must produce exactly these. */
 export const VECTOR = {
@@ -223,5 +224,23 @@ describe("version 2", () => {
     expect(b.sections.aaaaaaaaaaaaaaaa.progress["movie/9.mp4"][0]).toBe(1);
     const m = mergeBundles({ at: 6, sections: { aaaaaaaaaaaaaaaa: parcel({ at: 6 }) } }, [b], 7);
     expect(bundleJson(m)).not.toContain("logins");
+  });
+});
+
+describe("joining by QR code", () => {
+  it("matches the shared join vector", () => {
+    const j = parseJoinLink("telly://join?id=00112233445566778899aabbccddeeff&key=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")!;
+    const box = sealJoin(j, "0123456789ABCDEF", Uint8Array.from({ length: 12 }, (_, i) => i + 1));
+    expect(Buffer.from(box).toString("hex")).toBe("010102030405060708090a0b0c7ec839ba88f1d2bc6e9252752327df1e757bd8bfd52e1480e77d847a23a8054b9746a38ee4fdc41370785a");
+    expect(openJoin(j, box)).toBe("0123456789ABCDEF");
+  });
+
+  it("opens only its own box", () => {
+    const j = newJoin();
+    const box = sealJoin(j, "0123456789ABCDEF");
+    expect(openJoin(newJoin(), box)).toBeNull();
+    expect(openJoin({ id: newJoin().id, key: j.key }, box)).toBeNull();
+    expect(parseJoinLink(joinLink(j))?.id).toBe(j.id);
+    expect(parseJoinLink("telly://sync?code=0123456789ABCDEF")).toBeNull();
   });
 });

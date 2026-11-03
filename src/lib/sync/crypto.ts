@@ -80,7 +80,7 @@ export const seal = (keys: Keys, device: string, plaintext: string, nonce = rand
 /** The plaintext, or null if the parcel isn't ours, was altered, or is from a newer version. */
 export const open = (keys: Keys, device: string, box: Uint8Array) => openBox(keys.key, aad(keys, device), box);
 
-function sealBox(key: Uint8Array, aad: Uint8Array, plaintext: string, nonce: Uint8Array): Uint8Array {
+export function sealBox(key: Uint8Array, aad: Uint8Array, plaintext: string, nonce: Uint8Array): Uint8Array {
   const sealed = gcm(key, nonce, aad).encrypt(utf8(plaintext));
   const out = new Uint8Array(1 + 12 + sealed.length);
   out[0] = VERSION;
@@ -89,7 +89,7 @@ function sealBox(key: Uint8Array, aad: Uint8Array, plaintext: string, nonce: Uin
   return out;
 }
 
-function openBox(key: Uint8Array, aad: Uint8Array, box: Uint8Array): string | null {
+export function openBox(key: Uint8Array, aad: Uint8Array, box: Uint8Array): string | null {
   if (box.length < 1 + 12 + 16 || box[0] !== VERSION) return null;
   try {
     const plain = gcm(key, box.subarray(1, 13), aad).decrypt(box.subarray(13));
