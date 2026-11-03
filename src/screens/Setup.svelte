@@ -10,9 +10,10 @@
    * keyboard's Enter) goes on to the next: the kind of provider, then each detail, then a summary to
    * check and connect. Back goes back a step. Changing a saved provider starts at the summary.
    *
-   * [editing]: the saved provider being changed; [adding]: another one, over the browse screens.
+   * [editing]: the saved provider being changed; [adding]: another one, over the browse screens;
+   * [onBack]: on the first run, back to Welcome.
    */
-  let { editing, adding = false }: { editing?: string; adding?: boolean } = $props();
+  let { editing, adding = false, onBack }: { editing?: string; adding?: boolean; onBack?: () => void } = $props();
 
   type Step = "kind" | "server" | "username" | "password" | "url" | "review";
 
@@ -105,7 +106,7 @@
 
   /** Back (the remote's, or Esc) steps back before it leaves, even from a field. */
   function onkeydowncapture(e: KeyboardEvent) {
-    if (e.key === "Escape" && back()) {
+    if (e.key === "Escape" && (back() || (onBack && !(e.target instanceof HTMLInputElement) && (onBack(), true)))) {
       e.preventDefault();
       e.stopPropagation();
     } else if (e.key === "Enter" && e.target instanceof HTMLInputElement && step !== "review") {
@@ -145,13 +146,14 @@
     <div class="wordmark big"><Wordmark height={44} /></div>
 
     {#if step === "kind"}
-      <p class="lead">{adding ? "Add another provider." : "Add your IPTV provider to start watching. telly doesn't come with any channels."}</p>
+      <p class="lead">{adding ? "Add another provider." : "Sign in with the details your TV provider gave you. telly doesn't come with any channels."}</p>
       <p class="hint">What did your provider give you?</p>
       <div class="choices">
         <button type="button" class="choice" data-autofocus onclick={() => choose("xtream")}><b>Xtream Codes</b><small>A server address, username and password</small></button>
         <button type="button" class="choice" onclick={() => choose("m3u")}><b>M3U playlist</b><small>One playlist link</small></button>
       </div>
       {#if inApp && app.provider}<div class="btns"><button class="btn" type="button" onclick={() => app.goBack() || app.go({ name: "home" })}>Cancel</button></div>{/if}
+      {#if onBack}<div class="btns"><button class="btn" type="button" onclick={onBack}>Back</button></div>{/if}
 
     {:else if step !== "review"}
       {@const detail = step}
@@ -196,8 +198,8 @@
 
     {#if !inApp && app.sync && step === "kind"}
       <div class="join">
-        <h4>This {isWebOS ? "TV" : "browser"} is still linked for sync</h4>
-        <p class="hint">Add a provider to pick up where you left off on your other devices.</p>
+        <h4>This {isWebOS ? "TV" : "browser"} is linked with your other devices</h4>
+        <p class="hint">Add your provider to pick up where you left off on them: the same one, signed in the same way.</p>
         <div class="btns"><button class="btn small" type="button" onclick={() => app.stopSync()}>Stop syncing on this {isWebOS ? "TV" : "browser"}</button></div>
       </div>
     {/if}

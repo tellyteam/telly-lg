@@ -14,6 +14,7 @@
   import SeriesDetail from "./screens/SeriesDetail.svelte";
   import Settings from "./screens/Settings.svelte";
   import Setup from "./screens/Setup.svelte";
+  import FirstRun from "./screens/FirstRun.svelte";
 
   let width = $state(window.innerWidth);
   onMount(() => {
@@ -22,6 +23,9 @@
     window.addEventListener("beforeunload", save);
     return () => window.removeEventListener("beforeunload", save);
   });
+
+  /** On the first run, past Welcome to the provider. */
+  let settingUp = $state(false);
 
   const typing = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement;
 
@@ -53,8 +57,12 @@
 <div class="window" class:narrow={width < 1000 && !isWebOS}>
   {#if !app.ready}
     <div class="center"><div class="spinner"></div></div>
+  {:else if !app.provider && !app.providers.length && !app.sync && !settingUp}
+    <!-- The first run: Welcome, and joining other devices. Once linked, on to the provider. -->
+    <FirstRun onSetUp={() => (settingUp = true)} />
   {:else if app.route.name === "setup" || !app.provider}
-    <Setup editing={app.route.name === "setup" ? app.route.editing : undefined} adding={app.route.name === "setup" && !!app.route.adding} />
+    <Setup editing={app.route.name === "setup" ? app.route.editing : undefined} adding={app.route.name === "setup" && !!app.route.adding}
+      onBack={!app.providers.length && !app.sync ? () => (settingUp = false) : undefined} />
   {:else}
     <Rail />
     <main class="main">
