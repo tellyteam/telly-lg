@@ -137,8 +137,9 @@ class App {
     }
     this.version = version;
     this.sync = parseSync(savedSync);
-    // For Home's reminder of telly Plus, and Settings → Sync.
-    if (this.sync) void this.refreshPlus();
+    // For Home's reminder of telly Plus, and Settings → Sync; or, paid on a phone while telly was
+    // closed, to link the household now.
+    void this.refreshPlus();
     void backend.storeDelete("login-ledger");
     window.addEventListener("focus", () => {
       if (!this.player && Date.now() - (this.syncStatus.at ?? 0) > SYNC_GAP_MS) void this.syncNow();
@@ -731,9 +732,9 @@ class App {
 
   // ---- Sync ----
 
-  /** Sync is a hidden feature for now: Settings shows it once unlocked, or while this TV is linked. */
+  /** Settings → Sync shows unless hidden (seven presses on the version), and always while linked. */
   get syncShown() {
-    return !!this.meta.syncUnlocked || !!this.sync;
+    return this.meta.syncUnlocked !== false || !!this.sync;
   }
 
   /** Shows or hides Settings → Sync; returns whether it's now shown. Hiding never unlinks. */
@@ -752,18 +753,22 @@ class App {
     this.sync = config;
     this.plus = null;
     await this.syncNow();
+    const error = this.syncStatus.error;
+    if (error) {
+      // Only a household with telly Plus is joined: linking is never a step before buying.
+      await backend.secretDelete("sync");
+      this.sync = null;
+      this.syncStatus = { busy: false };
+      throw new SyncError(error === new PlusNeededError().message ? "That household doesn't have telly Plus. Check the code, or get telly Plus here." : error);
+    }
+    await backend.secretDelete("sync-pending").catch(() => {});
     await this.refreshPlus();
-    // A household that needs telly Plus stays linked: it's bought from here, then syncs.
-    // (Read afresh: refreshPlus has set it since.)
-    const plus = this.plus as PlusStatus | null;
-    if (this.syncStatus.error && plus?.until == null && this.syncStatus.error === new PlusNeededError().message) return;
-    if (this.syncStatus.error) throw new SyncError(this.syncStatus.error);
   }
 
-  /** Asks the relay about the household's telly Plus. A failure leaves what's known. */
+  /** Asks the relay about the household's telly Plus, or about the one being bought for. A failure leaves what's known. */
   async refreshPlus() {
     const config = this.sync;
-    if (!config) return;
+    if (!config) return this.linkPaid();
     let plus: PlusStatus;
     try {
       plus = await relayPlus(backend.syncTransport, config.relay, deriveKeys(config.code), config.device);
@@ -779,13 +784,33 @@ class App {
 
   /**
    * A checkout link for telly Plus, for this household. Throws a readable error. A TV with no
-   * household yet starts one first: telly Plus belongs to a household.
+   * household yet makes one for the purchase, out of sight: it's linked once it's paid for.
    */
   async plusCheckout(): Promise<string> {
-    if (!this.sync) await this.startSync();
-    const config = this.sync;
-    if (!config) throw new SyncError("Start syncing first.");
+    let config = this.sync ?? parseSync(await backend.secretGet("sync-pending").catch(() => null));
+    if (!config) {
+      config = { code: newCode(), device: newDeviceId(), relay: RELAY };
+      await backend.secretSet("sync-pending", JSON.stringify(config));
+    }
     return relayCheckout(backend.syncTransport, config.relay, deriveKeys(config.code));
+  }
+
+  /** The household being bought for has telly Plus now: link it, and sync straight away. */
+  private async linkPaid() {
+    const pending = parseSync(await backend.secretGet("sync-pending").catch(() => null));
+    if (!pending) return;
+    let plus: PlusStatus;
+    try {
+      plus = await relayPlus(backend.syncTransport, pending.relay, deriveKeys(pending.code), pending.device);
+    } catch {
+      return;
+    }
+    if (plus.until == null || this.sync) return;
+    await backend.secretSet("sync", JSON.stringify(pending));
+    await backend.secretDelete("sync-pending").catch(() => {});
+    this.sync = pending;
+    this.plus = plus;
+    void this.syncNow();
   }
 
   /** Takes this computer out of sync: its copy leaves the relay; the other devices keep theirs. */

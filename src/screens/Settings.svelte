@@ -4,6 +4,7 @@
   import { ago, app } from "../lib/state.svelte";
   import { formatCode } from "../lib/sync/crypto";
   import { syncLink } from "../lib/sync/link";
+  import { dayText } from "../lib/plus";
   import QrCode from "../components/QrCode.svelte";
   import PlainHttpSwitch from "../components/PlainHttpSwitch.svelte";
   import PlusPanel from "../components/PlusPanel.svelte";
@@ -79,8 +80,8 @@
     </div>
     {#if app.syncShown}
     <div class="panel"><h4>Sync</h4>
-      {#if app.sync}
-        <div class="line"><div>Keeping your place in sync<small>{app.syncStatus.busy ? "Syncing now…" : `Last synced ${ago(app.syncStatus.at)}`}{app.syncStatus.error ? ` · ${app.syncStatus.error}` : ""}</small></div>
+      {#if app.sync && app.plus?.until != null}
+        <div class="line"><div>Keeping your place in sync<small>{app.syncStatus.busy ? "Syncing now…" : `Last synced ${ago(app.syncStatus.at)}`} · telly Plus until {dayText(app.plus.until)}{app.syncStatus.error ? ` · ${app.syncStatus.error}` : ""}</small></div>
           <div class="btns"><button class="btn small" data-autofocus disabled={app.syncStatus.busy} onclick={() => app.syncNow()}>Sync now</button>
             <button class="btn small" onclick={() => app.stopSync()}>Stop syncing on this {isWebOS ? "TV" : "browser"}</button></div></div>
         <div class="line"><div>Link another device<small>Scan the QR code with your other device's camera, or enter the code in Settings → Sync on your other devices. Keep it private: anyone with it can see what you've watched.</small></div>
@@ -88,14 +89,20 @@
         {#if showCode}
           <div class="line sync-link"><QrCode text={syncLink(app.sync.code)} /><code class="sync-code">{formatCode(app.sync.code)}</code></div>
         {/if}
-        <PlusPanel onLink={() => (showCode = false)} />
         <div class="line"><div>Provider logins are never shared<small>Sign in on each device.</small></div></div>
+      {:else if app.sync && !app.plus}
+        <div class="line"><div>Checking this household's telly Plus…</div></div>
       {:else}
-        <div class="line"><div>Pick up where you left off on your other devices<small>Shares progress, Continue watching and My List, end-to-end encrypted. Provider logins are never shared, and the relay keeps no logs.</small></div>
-          <div class="btns"><button class="btn small primary" disabled={linking} onclick={() => link()}>Start syncing</button>
-            <button class="btn small" disabled={linking} onclick={() => (joining = !joining)}>I have a code</button></div></div>
+        <!-- Sync is part of telly Plus, so it starts one of two ways: buying it (a household is made
+             for it and linked once it's paid), or the code of a household that has it. A household
+             whose telly Plus has run out gets the same, and its code stays hidden. -->
+        <div class="line"><div>{app.sync ? "Sync is off: this household's telly Plus has run out" : "Pick up where you left off on your other devices"}<small>{app.sync ? "" : "Shares progress, Continue watching and My List, end-to-end encrypted. Provider logins are never shared, and the relay keeps no logs. "}Sync is part of telly Plus: free for 3 days, then £4.99 a year, for every device in your household.</small></div></div>
+        <PlusPanel />
+        <div class="line"><div></div>
+          <div class="btns"><button class="btn small" disabled={linking} onclick={() => (joining = !joining)}>I already have telly Plus</button>
+            {#if app.sync}<button class="btn small" onclick={() => { joining = false; app.stopSync(); }}>Unlink this {isWebOS ? "TV" : "browser"}</button>{/if}</div></div>
         {#if joining}
-          <div class="line"><div class="field" style="flex:1"><input placeholder="ABCD-EFGH-JKMN-PQRS" bind:value={joinCode} maxlength="19" spellcheck="false" autocomplete="off" /></div>
+          <div class="line"><div class="field" style="flex:1"><input placeholder="ABCD-EFGH-JKMN-PQRS" bind:value={joinCode} maxlength="19" spellcheck="false" autocomplete="off" /><small class="hint">The code from Settings → Sync on one of your other devices.</small></div>
             <button class="btn small primary" disabled={linking || !joinCode.trim()} onclick={() => link(joinCode)}>{linking ? "Linking…" : "Link"}</button></div>
         {/if}
         {#if syncError}<div class="notice">{syncError}</div>{/if}
