@@ -2,7 +2,7 @@
   import qrcode from "qrcode-generator";
 
   /** A QR code as crisp SVG: black on white with a quiet margin, so cameras read it off a screen. */
-  let { text, size = 168 }: { text: string; size?: number } = $props();
+  let { text, size = 168, label = "QR code to link another device" }: { text: string; size?: number; label?: string } = $props();
 
   const qr = $derived.by(() => {
     const q = qrcode(0, "M");
@@ -15,7 +15,7 @@
   });
 </script>
 
-<svg class="qr" width={size} height={size} viewBox="-2 -2 {qr.n + 4} {qr.n + 4}" shape-rendering="crispEdges" role="img" aria-label="QR code to link another device">
+<svg class="qr" width={size} height={size} viewBox="-2 -2 {qr.n + 4} {qr.n + 4}" shape-rendering="crispEdges" role="img" aria-label={label}>
   <rect x="-2" y="-2" width={qr.n + 4} height={qr.n + 4} fill="#fff" />
   <path d={qr.path} fill="#000" />
 </svg>

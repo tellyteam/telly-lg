@@ -25,6 +25,15 @@
 
   const openSeries = (s: Series) => app.go({ name: "seriesDetail", series: s });
   const openFilm = (f: Channel) => app.go({ name: "filmDetail", film: f });
+  /** Not now: focus moves down to the row below (or back up) before the card goes, not off to the side menu. */
+  function closeReminder(e: MouseEvent) {
+    const card = (e.currentTarget as HTMLElement).closest("section");
+    const below = card?.nextElementSibling?.querySelector<HTMLElement>("button, [tabindex='0']");
+    const above = card?.previousElementSibling?.querySelector<HTMLElement>("button");
+    (below ?? above)?.focus();
+    app.closePlusReminder();
+  }
+
   function badge(h: P.LastWatched) {
     if (h.live) return "Live";
     if (P.isFilm(h)) return "Film";
@@ -68,6 +77,18 @@
     </section>
   {/if}
 
+  {#if app.plusReminder}
+    <!-- Home's one reminder of telly Plus, a few days after it was first offered. Closing it is for good. -->
+    <section class="plus-reminder">
+      <b>Pick up where you left off on your other devices</b>
+      <p>With telly Plus: Sync across your devices.</p>
+      <div class="btns">
+        <button class="btn primary" onclick={() => (app.plusOffer = true)}>See telly Plus</button>
+        <button class="btn" onclick={closeReminder}>Not now</button>
+      </div>
+    </section>
+  {/if}
+
   {#if continuing.length}
     <Row title="Continue watching">
       {#each continuing.slice(0, 20) as h (P.slot(h))}
@@ -104,3 +125,11 @@
     <div class="empty"><b>Loading your lists…</b>The first load can take a minute with a big provider. After that telly opens instantly.</div>
   {/if}
 </div>
+
+<style>
+  .plus-reminder { margin: 12px 40px 12px var(--pad); max-width: 720px; padding: 20px; border-radius: 16px; background: var(--surface);
+    display: flex; flex-direction: column; gap: 8px; }
+  .plus-reminder b { font-size: 18px; }
+  .plus-reminder p { margin: 0; color: var(--muted); font-size: 15px; }
+  .plus-reminder .btns { margin-top: 4px; }
+</style>

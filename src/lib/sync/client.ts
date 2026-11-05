@@ -3,7 +3,7 @@ import { bundleJson, mergeBundles, parseBundle, type Bundle } from "./bundle";
 import { open, seal, type Keys } from "./crypto";
 
 export interface RelayRequest {
-  method: "GET" | "PUT" | "DELETE";
+  method: "GET" | "PUT" | "POST" | "DELETE";
   url: string;
   auth: string;
   body?: Uint8Array;
@@ -30,9 +30,23 @@ export const fetchTransport: Transport = async (r) => {
 
 export class SyncError extends Error {}
 
+/** The relay wants telly Plus for this household before it syncs (402). */
+export class PlusNeededError extends SyncError {
+  constructor() {
+    super("Sync needs telly Plus for this household.");
+  }
+}
+
+/** The household's telly Plus, as the relay has it: the last day it's paid for, and whether it's on sale here. */
+export interface PlusStatus {
+  until: number | null;
+  onSale: boolean;
+}
+
 function check(res: RelayResponse) {
   if (res.status === 401) throw new SyncError("This sync code is no longer valid on the relay.");
-  if (res.status === 402) throw new SyncError("Sync needs telly Plus for this household. It can be bought on an iPhone, iPad or Mac linked to it.");
+  if (res.status === 402) throw new PlusNeededError();
+  if (res.status === 503) throw new SyncError("telly Plus isn't on sale here yet.");
   if (res.status === 409) throw new SyncError("Too many devices are linked to this code (12 at most).");
   if (res.status < 200 || res.status >= 300) throw new SyncError(`The sync relay answered ${res.status}.`);
 }
@@ -67,6 +81,33 @@ export async function pull(transport: Transport, relay: string, keys: Keys, devi
 export async function push(transport: Transport, relay: string, keys: Keys, device: string, bundle: Bundle): Promise<void> {
   const body = seal(keys, device, bundleJson(bundle));
   check(await transport({ method: "PUT", url: `${base(relay)}/v1/${keys.mailbox}/${device}`, auth: keys.auth, body }));
+}
+
+/** The household's telly Plus, from the relay: only told to one of its devices, or [device] if there's room for it to join. */
+export async function plus(transport: Transport, relay: string, keys: Keys, device: string): Promise<PlusStatus> {
+  const res = await transport({ method: "GET", url: `${base(relay)}/v1/${keys.mailbox}/${device}/plus`, auth: keys.auth });
+  check(res);
+  const o = JSON.parse(res.text) as { until?: unknown; onSale?: unknown };
+  return { until: typeof o.until === "number" ? o.until : null, onSale: o.onSale === true };
+}
+
+/** A checkout link for this household, to open on a phone: Paddle takes the payment. */
+export async function checkout(transport: Transport, relay: string, keys: Keys): Promise<string> {
+  const res = await transport({ method: "POST", url: `${base(relay)}/v1/${keys.mailbox}/plus/checkout`, auth: keys.auth });
+  check(res);
+  const url = (JSON.parse(res.text) as { url?: unknown }).url;
+  if (typeof url !== "string") throw new SyncError("The sync relay didn't give a checkout link.");
+  return url;
+}
+
+/** Whether telly Plus can be bought here, for a TV with no household yet. Needs no token. */
+export async function onSale(transport: Transport, relay: string): Promise<boolean> {
+  try {
+    const res = await transport({ method: "GET", url: `${base(relay)}/v1/plus`, auth: "" });
+    return res.status === 200 && (JSON.parse(res.text) as { onSale?: unknown }).onSale === true;
+  } catch {
+    return false;
+  }
 }
 
 /** Takes this device's parcel off the relay (the others keep theirs). */

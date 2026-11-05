@@ -15,6 +15,7 @@
   import Settings from "./screens/Settings.svelte";
   import Setup from "./screens/Setup.svelte";
   import FirstRun from "./screens/FirstRun.svelte";
+  import PlusOffer from "./screens/PlusOffer.svelte";
 
   let width = $state(window.innerWidth);
   onMount(() => {
@@ -30,7 +31,7 @@
   const typing = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement;
 
   function onkeydown(e: KeyboardEvent) {
-    if (app.player || !app.provider) return; // the player and setup handle their own keys
+    if (app.player || !app.provider || app.plusOffer) return; // the player, setup and telly Plus's offer handle their own keys
     const mod = e.metaKey;
     if ((mod && e.key.toLowerCase() === "k") || (e.key === "/" && !typing(e.target))) {
       e.preventDefault();
@@ -86,5 +87,7 @@
       {/key}
     </main>
   {/if}
+  <!-- telly Plus, after the first proper watch: over Home, once the player has gone. -->
+  {#if app.plusOffer && !app.player && app.provider}<PlusOffer />{/if}
   {#if app.player}{#key app.player}<Player request={app.player} />{/key}{/if}
 </div>

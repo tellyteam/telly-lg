@@ -6,6 +6,7 @@
   import { syncLink } from "../lib/sync/link";
   import QrCode from "../components/QrCode.svelte";
   import PlainHttpSwitch from "../components/PlainHttpSwitch.svelte";
+  import PlusPanel from "../components/PlusPanel.svelte";
 
   let confirmRemove = $state(false);
   let clearing = $state(false);
@@ -82,11 +83,12 @@
         <div class="line"><div>Keeping your place in sync<small>{app.syncStatus.busy ? "Syncing now…" : `Last synced ${ago(app.syncStatus.at)}`}{app.syncStatus.error ? ` · ${app.syncStatus.error}` : ""}</small></div>
           <div class="btns"><button class="btn small" data-autofocus disabled={app.syncStatus.busy} onclick={() => app.syncNow()}>Sync now</button>
             <button class="btn small" onclick={() => app.stopSync()}>Stop syncing on this {isWebOS ? "TV" : "browser"}</button></div></div>
-        <div class="line"><div>Link another device<small>Scan the QR code with your iPad's camera, or enter the code in Settings → Sync on your Fire TV or iPad. Keep it private: anyone with it can see what you've watched.</small></div>
+        <div class="line"><div>Link another device<small>Scan the QR code with your other device's camera, or enter the code in Settings → Sync on your other devices. Keep it private: anyone with it can see what you've watched.</small></div>
           <button class="btn small" onclick={() => (showCode = !showCode)}>{showCode ? "Hide code" : "Show code"}</button></div>
         {#if showCode}
           <div class="line sync-link"><QrCode text={syncLink(app.sync.code)} /><code class="sync-code">{formatCode(app.sync.code)}</code></div>
         {/if}
+        <PlusPanel onLink={() => (showCode = false)} />
         <div class="line"><div>Provider logins are never shared<small>Sign in on each device.</small></div></div>
       {:else}
         <div class="line"><div>Pick up where you left off on your other devices<small>Shares progress, Continue watching and My List, end-to-end encrypted. Provider logins are never shared, and the relay keeps no logs.</small></div>

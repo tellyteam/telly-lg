@@ -2,7 +2,8 @@ import * as backend from "./backend";
 import { syncIdentity, type Channel, type Group, type Provider, type Series, type SeriesData } from "./model";
 import * as P from "./playback";
 import * as repo from "./repo";
-import { syncOnce, leave as leaveRelay, SyncError } from "./sync/client";
+import { offersPlus, plusReminderDue } from "./plus";
+import { syncOnce, leave as leaveRelay, checkout as relayCheckout, onSale as relayOnSale, plus as relayPlus, PlusNeededError, SyncError, type PlusStatus } from "./sync/client";
 import { deriveKeys, hex, newCode, newDeviceId, normaliseCode, providerTag, randomBytes } from "./sync/crypto";
 import { apply as applySync, emptyLedger, seriesChanged, toParcel, type Ledger, type Local } from "./sync/local";
 import type { HistoryEntry } from "./sync/parcel";
@@ -38,6 +39,10 @@ interface Meta {
   syncUnlocked?: boolean;
   /** The saved provider in use, by id. */
   activeProvider?: string;
+  /** When telly Plus was first offered (ms), after the first proper watch: it's offered once. */
+  plusOfferedAt?: number;
+  /** Home's reminder of telly Plus was closed: it's for good. */
+  plusReminderClosed?: boolean;
 }
 
 /** A provider saved on this TV. [changedAt] is when it was added or last changed (ms). */
@@ -64,6 +69,7 @@ export const RELAY: string = (import.meta.env.DEV && import.meta.env.VITE_TELLY_
 
 /** Never more often than this when the window regains focus. */
 const SYNC_GAP_MS = 60_000;
+
 
 /** Lets the screen update (and the remote respond) between pieces of heavy work. */
 const nextFrame = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -93,6 +99,10 @@ class App {
   settings = $state<Settings>({ autoNext: true });
   sync = $state<SyncConfig | null>(null);
   syncStatus = $state<{ busy: boolean; at?: number; error?: string }>({ busy: false });
+  /** The household's telly Plus, once the relay has said. */
+  plus = $state<PlusStatus | null>(null);
+  /** telly Plus offered over Home: once after the first proper watch, or from Home's reminder. */
+  plusOffer = $state(false);
   /** Reactive for the record of watched titles it holds, which posters show. */
   private ledger = $state<Ledger>(emptyLedger());
 
@@ -127,6 +137,8 @@ class App {
     }
     this.version = version;
     this.sync = parseSync(savedSync);
+    // For Home's reminder of telly Plus, and Settings → Sync.
+    if (this.sync) void this.refreshPlus();
     void backend.storeDelete("login-ledger");
     window.addEventListener("focus", () => {
       if (!this.player && Date.now() - (this.syncStatus.at ?? 0) > SYNC_GAP_MS) void this.syncNow();
@@ -536,8 +548,12 @@ class App {
 
   /** Continue watching follows once it has played long enough (the player calls [recordWatching]). */
   play(req: PlayRequest) {
+    this.playerOpenedAt ??= Date.now();
     this.player = req;
   }
+
+  /** When the player opened, for telly Plus's offer after the first proper watch. */
+  private playerOpenedAt: number | null = null;
 
   /**
    * Called once something has played for 30 s (live TV at once), and again for each episode after,
@@ -581,6 +597,33 @@ class App {
     this.player = null;
     backend.flushWrites();
     void this.syncNow().then(() => this.checkForNewEpisodes());
+    const opened = this.playerOpenedAt;
+    this.playerOpenedAt = null;
+    if (opened !== null) void this.offerPlusAfterWatch(Date.now() - opened);
+  }
+
+  /**
+   * Leaving the player after the first proper watch (5 minutes or more, in one go): telly Plus is
+   * offered, once. After "Not now" it's only in Settings → Sync and Home's one reminder. Like Sync,
+   * it waits for the hidden switch until telly Plus is on sale for everyone.
+   */
+  private async offerPlusAfterWatch(watchedMs: number) {
+    if (!offersPlus(watchedMs, this.syncShown, this.plus?.until != null, !!this.meta.plusOfferedAt)) return;
+    const onSale = this.plus?.onSale ?? (await relayOnSale(backend.syncTransport, RELAY));
+    if (!onSale || this.meta.plusOfferedAt) return;
+    this.meta.plusOfferedAt = Date.now();
+    backend.storeWrite("meta", this.meta, 0);
+    this.plusOffer = true;
+  }
+
+  /** Home's one reminder of telly Plus, a few days after it was first offered. */
+  get plusReminder() {
+    return plusReminderDue(Date.now(), this.meta.plusOfferedAt, !!this.meta.plusReminderClosed, this.syncShown, this.plus?.until != null);
+  }
+
+  closePlusReminder() {
+    this.meta.plusReminderClosed = true;
+    backend.storeWrite("meta", this.meta, 0);
   }
 
   private checkingEpisodes = false;
@@ -707,8 +750,42 @@ class App {
     const config: SyncConfig = { code: normal, device: this.sync?.device ?? newDeviceId(), relay: RELAY };
     await backend.secretSet("sync", JSON.stringify(config));
     this.sync = config;
+    this.plus = null;
     await this.syncNow();
+    await this.refreshPlus();
+    // A household that needs telly Plus stays linked: it's bought from here, then syncs.
+    // (Read afresh: refreshPlus has set it since.)
+    const plus = this.plus as PlusStatus | null;
+    if (this.syncStatus.error && plus?.until == null && this.syncStatus.error === new PlusNeededError().message) return;
     if (this.syncStatus.error) throw new SyncError(this.syncStatus.error);
+  }
+
+  /** Asks the relay about the household's telly Plus. A failure leaves what's known. */
+  async refreshPlus() {
+    const config = this.sync;
+    if (!config) return;
+    let plus: PlusStatus;
+    try {
+      plus = await relayPlus(backend.syncTransport, config.relay, deriveKeys(config.code), config.device);
+    } catch {
+      return;
+    }
+    if (this.sync !== config) return;
+    const was = this.plus;
+    this.plus = plus;
+    // Just bought (on a phone, from this TV's QR code): sync straight away.
+    if (plus.until != null && was?.until == null) void this.syncNow();
+  }
+
+  /**
+   * A checkout link for telly Plus, for this household. Throws a readable error. A TV with no
+   * household yet starts one first: telly Plus belongs to a household.
+   */
+  async plusCheckout(): Promise<string> {
+    if (!this.sync) await this.startSync();
+    const config = this.sync;
+    if (!config) throw new SyncError("Start syncing first.");
+    return relayCheckout(backend.syncTransport, config.relay, deriveKeys(config.code));
   }
 
   /** Takes this computer out of sync: its copy leaves the relay; the other devices keep theirs. */
@@ -722,6 +799,7 @@ class App {
     }
     await backend.secretDelete("sync");
     this.sync = null;
+    this.plus = null;
     this.syncStatus = { busy: false };
   }
 
