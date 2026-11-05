@@ -60,7 +60,7 @@ export interface SyncConfig {
 
 /** telly's relay: sync always uses it (a link saved with another one is moved to it). */
 // In development a local relay can stand in: VITE_TELLY_RELAY=http://localhost:8787 npm run dev.
-export const RELAY: string = (import.meta.env.DEV && import.meta.env.VITE_TELLY_RELAY) || "https://telly-sync.tellyteam.workers.dev";
+export const RELAY: string = (import.meta.env.DEV && import.meta.env.VITE_TELLY_RELAY) || "https://sync.gettelly.app";
 
 /** Never more often than this when the window regains focus. */
 const SYNC_GAP_MS = 60_000;
