@@ -97,13 +97,16 @@ export function focus(el: HTMLElement) {
     else if (r.left < t.left + pad) dx = r.left - (t.left + pad);
     if (dx) track.scrollBy({ left: dx, behavior: "smooth" });
   }
+  // Up and down the page it jumps, not glides: like a row (slide, below), a scrolling page is redrawn
+  // on every frame of the scroll on Samsung's and LG's Chromium, and a smooth ▼ on Home cost about
+  // 600 ms of drawing per press on the Samsung. A jump draws the new position once.
   const page = scroller(el, "y");
-  if (!page) return el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
-  if (el.closest(".hero")) return page.scrollTo({ top: 0, behavior: "smooth" });
+  if (!page) return el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  if (el.closest(".hero")) return page.scrollTo({ top: 0 });
   const section = el.closest<HTMLElement>(".row, .detail-hero, .chips, .eps") ?? el;
   const v = page.getBoundingClientRect(), r = section.getBoundingClientRect();
-  if (r.top < v.top) page.scrollBy({ top: r.top - v.top, behavior: "smooth" });
-  else if (r.bottom > v.bottom) page.scrollBy({ top: Math.min(r.bottom - v.bottom, r.top - v.top), behavior: "smooth" });
+  if (r.top < v.top) page.scrollBy({ top: r.top - v.top });
+  else if (r.bottom > v.bottom) page.scrollBy({ top: Math.min(r.bottom - v.bottom, r.top - v.top) });
 }
 
 /**

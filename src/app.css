@@ -1,7 +1,7 @@
 /* telly's design tokens: blue-slate, lightly rounded, a soft blue glow. Shared with the TV app. */
 :root {
   --bg: #151a22; --bg-high: #1f2838; --bg-low: #12161d; --surface: #1e2531; --surface2: #273041; --line: #2f3a4c;
-  --text: #e9edf2; --muted: #98a4b4; --faint: #6c788a;
+  --text: #e9edf2; --muted: #98a4b4; --faint: #808c9e;
   --accent: #4fc3f7; --accent-ink: #062330; --accent-soft: rgba(79, 195, 247, .16); --glow: rgba(79, 195, 247, .4);
   --logo-tile: #eef2f6;
   --r-card: 10px; --r-pill: 12px; --rail: 208px; --pad: 40px;
@@ -294,6 +294,10 @@ html.tv .nav:focus { outline: none; background: var(--accent-soft); color: #fff;
 html.tv .rail .nav span, html.tv .nav.refresh small { opacity: 0; white-space: nowrap; }
 html.tv .rail:focus-within .nav span, html.tv .rail:focus-within .nav.refresh small { opacity: 1; }
 html.tv .nav .k, html.tv .nav.refresh small { display: none; }
+/* No spinning refresh icon on a TV ("Refreshing…" says it): an endless animation redraws the page
+ * ~50 times a second, which made every remote press 4–5× slower on the Samsung, and its Chromium
+ * kept it spinning after the refresh ended, so presses stayed slow for the rest of the session. */
+html.tv .nav.refresh.spinning svg { animation: none; }
 html.tv .rail:focus-within .nav.refresh small { display: block; }
 
 /* No top bar search on a TV (Search is in the menu); Back is the remote's. */

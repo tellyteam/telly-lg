@@ -75,6 +75,17 @@ npm run speed -- --inspector http://127.0.0.1:9333 --baseline scripts/speed/sams
 If `sdb connect` is refused while Tizen's Certificate Manager is open, it's running sdb in a
 restricted mode. Stop it (`pkill -f "sdb fork-server"`) and start sdb again.
 
+`shell 0 debug` only works when telly isn't running: if it's open (even in the background), the
+command waits forever and prints nothing, and sdb's kill commands don't close it. Installing the
+`.wgt` again closes it and keeps its data, and then `debug` answers at once:
+
+```bash
+~/tizen-studio/tools/ide/bin/tizen install -n build-tizen/telly_1.0.0.wgt -s TV_IP:26101
+```
+
+A TV woken from standby (or by Wake-on-LAN, when the TV's **Power On with Mobile** is on) takes
+about 10 seconds before `sdb connect` works.
+
 ### On the LG
 
 ```bash

@@ -12,10 +12,14 @@
 //
 // It moves around the app (Home, Live TV, Films) but plays nothing and changes no settings.
 
-const args = Object.fromEntries(process.argv.slice(2).join(" ").split(/\s*--/).filter(Boolean).map((a) => {
-  const [k, ...v] = a.split(/\s+/);
-  return [k, v.join(" ") || "true"];
-}));
+// `--name value` pairs, or `--name` alone for true. Values are taken whole, so a path may contain "--".
+const args = {};
+for (let i = 2; i < process.argv.length; i++) {
+  const a = process.argv[i];
+  if (!a.startsWith("--")) continue;
+  const next = process.argv[i + 1];
+  args[a.slice(2)] = next === undefined || next.startsWith("--") ? "true" : (i++, next);
+}
 const inspector = (args.inspector ?? "http://127.0.0.1:9333").replace(/\/$/, "");
 // Without a baseline: a flat budget of main-thread time per press.
 const budget = Number(args.budget ?? 100);
