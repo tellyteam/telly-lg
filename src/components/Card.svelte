@@ -3,7 +3,8 @@
   import { app, type FavKind } from "../lib/state.svelte";
 
   let {
-    variant = "poster", title, image, onclick, badge, progress, playable = false, fav, caption = true, onremove, dimmed = false,
+    variant = "poster", title, image, onclick, badge, progress, playable = false, fav, caption = true, onremove, dimmed = false, autofocus = false,
+    removing = false,
   }: {
     variant?: "poster" | "landscape" | "chan";
     title: string;
@@ -18,6 +19,10 @@
     onremove?: () => void;
     /** In My List a watched poster is dimmed a little; the label and title stay at full strength. */
     dimmed?: boolean;
+    /** The stop a new screen starts on (See all's first title). */
+    autofocus?: boolean;
+    /** Its row is in Remove mode (TVs): a ✕ shows, and OK takes it off the row. */
+    removing?: boolean;
   } = $props();
 
   const on = $derived(fav ? app.isFavourite(fav.kind, fav.id) : false);
@@ -28,7 +33,7 @@
   let picture = $state(false);
 </script>
 
-<div class="card {variant}" class:picture class:faded={watched && dimmed} role="button" tabindex="0" {onclick} onkeydown={(e) => e.key === "Enter" && onclick()} title={title}>
+<div class="card {variant}" class:removing class:picture class:faded={watched && dimmed} role="button" tabindex="0" data-autofocus={autofocus || undefined} {onclick} onkeydown={(e) => e.key === "Enter" && !e.defaultPrevented && onclick()} title={title}>
   <div class="art">
     {#if variant === "chan"}
       <Art src={image} {title} fit={picture ? "cover" : "contain"} onsize={(r) => (picture = r >= 1.55 && r <= 2.1)} />
@@ -49,5 +54,6 @@
     <button class="heart remove" title="Remove from Continue watching" aria-label="Remove {title} from Continue watching"
       onclick={(e) => { e.stopPropagation(); onremove(); }}>✕</button>
   {/if}
+  {#if removing}<span class="x" aria-hidden="true">✕</span>{/if}
   {#if caption}<div class="cap">{title}</div>{/if}
 </div>

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import Rail from "./components/Rail.svelte";
-  import { flushWrites, isWebOS } from "./lib/backend";
+  import { exitToTv, flushWrites, isTV } from "./lib/backend";
   import { app } from "./lib/state.svelte";
   import Catalog from "./screens/Catalog.svelte";
   import FilmDetail from "./screens/FilmDetail.svelte";
@@ -30,8 +30,23 @@
 
   const typing = (t: EventTarget | null) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement;
 
+  /**
+   * Back that nothing else took: back a screen; from the top of Live TV, Series and the other
+   * sections, to Home; from Home (or Welcome and the first setup), out to the TV's Home.
+   */
+  function back() {
+    if (app.goBack()) return;
+    if (app.provider && app.route.name !== "home") app.go({ name: "home" });
+    else exitToTv();
+  }
+
   function onkeydown(e: KeyboardEvent) {
-    if (app.player || !app.provider || app.plusOffer) return; // the player, setup and telly Plus's offer handle their own keys
+    if (app.player || app.plusOffer || e.defaultPrevented) return; // the player and telly Plus's offer handle their own keys
+    if (!app.provider) {
+      // Welcome and the first setup handle their own steps; Back past the first one leaves telly.
+      if (e.key === "Escape" && !typing(e.target)) back();
+      return;
+    }
     const mod = e.metaKey;
     if ((mod && e.key.toLowerCase() === "k") || (e.key === "/" && !typing(e.target))) {
       e.preventDefault();
@@ -47,7 +62,7 @@
       void app.refresh();
     } else if (e.key === "Escape" || (mod && e.key === "[")) {
       if (typing(e.target)) (e.target as HTMLElement).blur();
-      else app.goBack();
+      else back();
     }
   }
 </script>
@@ -55,7 +70,7 @@
 <svelte:window bind:innerWidth={width} {onkeydown} />
 
 <!-- A TV lays out at 960 wide (zoom 2, like Android TV), but it isn't a narrow window. -->
-<div class="window" class:narrow={width < 1000 && !isWebOS}>
+<div class="window" class:narrow={width < 1000 && !isTV}>
   {#if !app.ready}
     <div class="center"><div class="spinner"></div></div>
   {:else if !app.provider && !app.providers.length && !app.sync && !settingUp}

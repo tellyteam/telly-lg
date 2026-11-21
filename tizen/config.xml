@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The Samsung TV (Tizen) app's description. scripts/tizen-pack.mjs copies it into dist-tizen with
+  the version from package.json. The package id (10 letters and numbers) and the application id
+  can't change once the app is in Samsung's store: the TV keeps an app's data under them.
+-->
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets"
+        id="https://gettelly.app/telly" version="0.0.0" viewmodes="maximized">
+  <tizen:application id="TellyTV001.telly" package="TellyTV001" required_version="5.5" />
+  <tizen:profile name="tv-samsung" />
+  <name>telly</name>
+  <icon src="icon.png" />
+  <content src="index.html" />
+  <feature name="http://tizen.org/feature/screen.size.all" />
+
+  <!-- Providers can be anywhere, and some only have plain HTTP (allowed per provider in telly). -->
+  <access origin="*" subdomains="true" />
+  <tizen:allow-navigation>*</tizen:allow-navigation>
+  <tizen:privilege name="http://tizen.org/privilege/internet" />
+  <!-- The remote's play/pause, rewind, fast-forward and channel keys. -->
+  <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice" />
+
+  <tizen:setting screen-orientation="landscape" context-menu="disable" background-support="disable"
+                 encryption="disable" install-location="auto" hwkey-event="enable" />
+</widget>

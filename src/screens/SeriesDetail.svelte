@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import Art from "../components/Art.svelte";
   import TopBar from "../components/TopBar.svelte";
   import { playEpisode } from "../lib/actions";
+  import { isTV } from "../lib/backend";
   import type { Series, SeriesData } from "../lib/model";
   import * as P from "../lib/playback";
   import * as repo from "../lib/repo";
@@ -45,8 +47,16 @@
     return () => { cancelled = true; };
   });
 
+  let favButton: HTMLButtonElement;
+
   function pickSeason() {
     seasonIndex = resumeAt?.season ?? 0;
+    // Play only appears once the episodes are here; the remote may already be on My List (the
+    // only button until then). Move it to Play, unless it has gone somewhere else.
+    if (isTV) void tick().then(() => {
+      const active = document.activeElement;
+      if (active === favButton || active === document.body) document.querySelector<HTMLElement>(".detail-hero .btn.primary")?.focus();
+    });
   }
 
   const season = $derived(data?.seasons[seasonIndex]);
@@ -87,7 +97,7 @@
             <button class="btn primary" onclick={() => play(0, 0)}>▶ Play from the start</button>
           {/if}
         {/if}
-        <button class="btn" class:on={fav} onclick={() => app.toggleFavourite("series", series.id)}>{fav ? "✓ In My List" : "＋ My List"}</button>
+        <button class="btn" class:on={fav} bind:this={favButton} onclick={() => app.toggleFavourite("series", series.id)}>{fav ? "✓ In My List" : "＋ My List"}</button>
       </div>
     </div>
   </section>
@@ -98,31 +108,35 @@
     <div class="empty"><div class="spinner"></div></div>
   {:else}
     {#if data.seasons.length > 1}
-      <div class="chips">
-        {#each data.seasons as s, i (s.name)}<button class="chip" class:sel={i === seasonIndex} onclick={() => (seasonIndex = i)}>{s.name}</button>{/each}
+      <div class="track-clip">
+        <div class="chips">
+          {#each data.seasons as s, i (s.name)}<button class="chip" class:sel={i === seasonIndex} onclick={() => (seasonIndex = i)}>{s.name}</button>{/each}
+        </div>
       </div>
     {/if}
-    <div class="track eps">
-      {#each season?.episodes ?? [] as ep, i (ep.id)}
-        {@const p = app.progressOf(ep.url)}
-        {@const current = resumeAt?.season === seasonIndex && resumeAt.episode === i}
-        <div class="ep" class:current role="button" tabindex="0" title={ep.name}
-          onclick={() => play(seasonIndex, i)} onkeydown={(e) => e.key === "Enter" && play(seasonIndex, i)}>
-          <div class="thumb"><Art src={ep.logo} fallback={series.cover} title={ep.name + series.name} />
-            {#if p && P.finished(p)}<div class="done">✓</div>{/if}
-            {#if p && !P.finished(p)}<div class="bar"><div class="progress"><i style:width="{P.fraction(p) * 100}%"></i></div></div>{/if}
+    <div class="track-clip">
+      <div class="track eps">
+        {#each season?.episodes ?? [] as ep, i (ep.id)}
+          {@const p = app.progressOf(ep.url)}
+          {@const current = resumeAt?.season === seasonIndex && resumeAt.episode === i}
+          <div class="ep" class:current role="button" tabindex="0" title={ep.name}
+            onclick={() => play(seasonIndex, i)} onkeydown={(e) => e.key === "Enter" && !e.defaultPrevented && play(seasonIndex, i)}>
+            <div class="thumb"><Art src={ep.logo} fallback={series.cover} title={ep.name + series.name} />
+              {#if p && P.finished(p)}<div class="done">✓</div>{/if}
+              {#if p && !P.finished(p)}<div class="bar"><div class="progress"><i style:width="{P.fraction(p) * 100}%"></i></div></div>{/if}
+            </div>
+            <h5>{epNumber(ep.name) ?? i + 1}. {epTitle(ep.name)}</h5>
+            <div class="sub">
+              {#if current}{p && P.resumePosition(p) ? `${Math.max(1, Math.round((p[1] - p[0]) / 60000))} min left` : "Up next"}
+              {:else if p && P.finished(p)}Watched
+              {:else if p && P.resumePosition(p)}{Math.max(1, Math.round((p[1] - p[0]) / 60000))} min left
+              {:else}{ep.runtime ?? ""}{/if}
+            </div>
           </div>
-          <h5>{epNumber(ep.name) ?? i + 1}. {epTitle(ep.name)}</h5>
-          <div class="sub">
-            {#if current}{p && P.resumePosition(p) ? `${Math.max(1, Math.round((p[1] - p[0]) / 60000))} min left` : "Up next"}
-            {:else if p && P.finished(p)}Watched
-            {:else if p && P.resumePosition(p)}{Math.max(1, Math.round((p[1] - p[0]) / 60000))} min left
-            {:else}{ep.runtime ?? ""}{/if}
-          </div>
-        </div>
-      {:else}
-        <div class="empty">No episodes listed for this season.</div>
-      {/each}
+        {:else}
+          <div class="empty">No episodes listed for this season.</div>
+        {/each}
+      </div>
     </div>
   {/if}
 </div>

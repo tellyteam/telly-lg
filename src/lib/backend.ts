@@ -9,12 +9,16 @@ import { fetchTransport, type Transport } from "./sync/client";
 
 /** Built for LG TVs (`npm run build`). */
 export const isWebOS = import.meta.env.VITE_TARGET === "webos";
+/** Built for Samsung TVs (`npm run build:tizen`). */
+export const isTizen = import.meta.env.VITE_TARGET === "tizen";
+/** On a TV, LG or Samsung: the remote drives everything, and the TV fetches and plays directly. */
+export const isTV = isWebOS || isTizen;
 
 let relayBase = "";
 let cleartext = false;
 
 export async function initBackend(): Promise<void> {
-  relayBase = isWebOS ? "" : `${location.origin}/__relay/dev`;
+  relayBase = isTV ? "" : `${location.origin}/__relay/dev`;
 }
 
 /** Follows the active provider's "allow plain HTTP" setting. */
@@ -31,8 +35,8 @@ function b64url(s: string): string {
 
 /** The relay address for a provider URL. `hls` asks the relay to rewrite playlists (for playback). */
 export function relayUrl(target: string, opts: { hls?: boolean } = {}): string {
-  // The TV needs no relay: packaged webOS apps may fetch and play from any address.
-  if (isWebOS) return target;
+  // The TV needs no relay: packaged TV apps may fetch and play from any address.
+  if (isTV) return target;
   const flags = (cleartext ? "c" : "") + (opts.hls ? "h" : "") || "-";
   let name = "x";
   try {
@@ -72,7 +76,7 @@ async function get(url: string, signal?: AbortSignal): Promise<Response> {
   }
   // A web app can't see a redirect before it's followed, so one to plain HTTP is only caught here,
   // and its answer isn't used. (The dev relay refuses it before it goes.)
-  if (isWebOS && res.url.startsWith("http:") && !cleartext) {
+  if (isTV && res.url.startsWith("http:") && !cleartext) {
     throw new Error(`${host(url)} redirected to unencrypted HTTP, which is turned off. If your provider has no HTTPS, allow it in Settings.`);
   }
   if (res.status === 502 || res.status === 403) throw new Error(await res.text());
@@ -147,6 +151,49 @@ export function flushWrites(): void {
   for (const write of [...pendingValues.values()]) write();
 }
 
+/** Samsung's own web APIs, there on a Samsung TV. */
+type Tizen = {
+  application: { getCurrentApplication(): { exit(): void } };
+  tvinputdevice: { registerKey(name: string): void };
+};
+const tizen = () => (window as unknown as { tizen?: Tizen }).tizen;
+
+/**
+ * Back on telly's first screen: out to the TV's Home, as LG's and Samsung's checklists ask. webOS
+ * gives Back to the app (`disableBackHistoryAPI`), so the app hands it on with the platform's own
+ * Back; a Samsung app closes itself.
+ */
+export function exitToTv(): void {
+  if (!isTV) return;
+  flushWrites();
+  if (isTizen) {
+    try {
+      tizen()!.application.getCurrentApplication().exit();
+    } catch {
+      window.close();
+    }
+    return;
+  }
+  const palm = (window as unknown as { PalmSystem?: { platformBack?: () => void } }).PalmSystem;
+  if (palm?.platformBack) palm.platformBack();
+  else window.close();
+}
+
+/**
+ * A Samsung TV keeps the remote's media and channel keys for itself unless the app asks for them
+ * (arrows, OK, Back and the numbers always come through). LG sends them all.
+ */
+export function registerRemoteKeys(): void {
+  if (!isTizen) return;
+  for (const key of ["MediaPlayPause", "MediaPlay", "MediaPause", "MediaRewind", "MediaFastForward", "ChannelUp", "ChannelDown"]) {
+    try {
+      tizen()?.tvinputdevice.registerKey(key);
+    } catch {
+      // An older remote or model without that key.
+    }
+  }
+}
+
 // ---- Sync ----
 
 export const syncTransport: Transport = fetchTransport;
@@ -158,14 +205,14 @@ export async function openExternal(url: string): Promise<void> {
 }
 
 export async function setFullscreen(on: boolean): Promise<void> {
-  if (isWebOS) return; // always full screen
+  if (isTV) return; // always full screen
   if (on) await document.documentElement.requestFullscreen?.();
   else if (document.fullscreenElement) await document.exitFullscreen();
 }
 
 export async function isFullscreen(): Promise<boolean> {
   // A TV is always full screen, so there's never a full screen to leave: Back closes the player.
-  return !isWebOS && !!document.fullscreenElement;
+  return !isTV && !!document.fullscreenElement;
 }
 
 export async function appVersion(): Promise<string> {

@@ -16,6 +16,15 @@ describe("progress", () => {
     expect(P.finished([530_000, 600_000])).toBe(false);
     expect(P.resumePosition([10_000, 2_400_000])).toBe(0);
     expect(P.resumePosition([90_000, 2_400_000])).toBe(90_000);
+  });
+
+  it("a film's credits count from the last 10%", () => {
+    // A two-hour film stopped as its 8 min 38 s of credits start: watched, though an episode wouldn't be.
+    expect(P.finished([6_698_967, 7_216_864], true)).toBe(true);
+    expect(P.finished([6_698_967, 7_216_864])).toBe(false);
+    expect(P.resumePosition([6_698_967, 7_216_864], true)).toBe(0);
+    expect(P.isFilmUrl("https://tv.example/movie/u/p/671895.vod")).toBe(true);
+    expect(P.isFilmUrl("https://tv.example/series/u/p/1234.mkv")).toBe(false);
     expect(P.resumePosition([2_390_000, 2_400_000])).toBe(0);
   });
 });

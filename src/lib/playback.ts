@@ -24,12 +24,16 @@ export function promptSeconds(durationMs: number, positionMs: number, hasNext: b
 /** Whether the next item starts when this one plays to its end. */
 export const advanceAtEnd = (hasNext: boolean, autoNext: boolean, dismissed: boolean) => hasNext && autoNext && !dismissed;
 
-/** Within its credits: the last minute or the last 5%, whichever is longer. */
-export const watched = (positionMs: number, durationMs: number) => durationMs - positionMs < Math.max(PROMPT_MS, durationMs / 20);
+/**
+ * Within its credits: the last minute, or the last 5% of an episode and the last 10% of a film (a
+ * feature film's credits often run eight to twelve minutes), whichever is longer.
+ */
+export const watched = (positionMs: number, durationMs: number, film: boolean) =>
+  durationMs - positionMs < Math.max(PROMPT_MS, durationMs / (film ? 10 : 20));
 
 /** Where an item starts: its saved position, unless barely started or watched. */
-export function startAt(positionMs: number | null | undefined, durationMs: number | null | undefined): number {
-  if (positionMs == null || durationMs == null || positionMs < MIN_RESUME_MS || watched(positionMs, durationMs)) return 0;
+export function startAt(positionMs: number | null | undefined, durationMs: number | null | undefined, film: boolean): number {
+  if (positionMs == null || durationMs == null || positionMs < MIN_RESUME_MS || watched(positionMs, durationMs, film)) return 0;
   return positionMs;
 }
 
@@ -50,7 +54,8 @@ export function nextPlayable(index: number, count: number, downloaded: (i: numbe
 export type Progress = [number, number, number?];
 
 export const fraction = ([pos, dur]: Progress) => Math.min(1, Math.max(0, pos / dur));
-export const finished = ([pos, dur]: Progress) => watched(pos, dur);
+/** [film]: whether it's a film's progress (isFilmUrl), whose credits count as watched sooner. */
+export const finished = ([pos, dur]: Progress, film = false) => watched(pos, dur, film);
 
 /**
  * Xtream stream URLs embed the username and password (`/series/user/pass/123.mkv`), so the key
@@ -66,7 +71,12 @@ export function progressKey(url: string): string {
 }
 
 /** Where to start: the saved position, unless barely started or already finished. */
-export const resumePosition = (p: Progress | undefined) => startAt(p?.[0], p?.[1]);
+export const resumePosition = (p: Progress | undefined, film = false) => startAt(p?.[0], p?.[1], film);
+
+/** Whether a progress key (`movie/123.mkv`) is a film's. */
+export const isFilmKey = (key: string) => key.startsWith("movie/");
+/** Whether a stream address is a film's, by its progress key. */
+export const isFilmUrl = (url: string) => isFilmKey(progressKey(url));
 
 /** A film's id from its progress key (`movie/123.mkv`); null for anything else. */
 export function filmId(key: string): string | null {
@@ -124,14 +134,14 @@ export function remember(history: LastWatched[], entry: LastWatched, max = 30): 
 export function continueIndex(h: LastWatched, progressOf: (url: string) => Progress | undefined): number {
   const i = Math.min(Math.max(h.index, 0), h.items.length - 1);
   if (h.live) return i;
-  return continueAt(i, h.items.length, (j) => { const p = progressOf(h.items[j].url); return !!p && finished(p); });
+  return continueAt(i, h.items.length, (j) => { const p = progressOf(h.items[j].url); return !!p && finished(p, isFilmUrl(h.items[j].url)); });
 }
 
 /** Whether it stays in Continue watching: something in it is left to watch (PLAYBACK.md). */
 export function inContinue(h: LastWatched, progressOf: (url: string) => Progress | undefined): boolean {
   if (h.live) return true;
   const i = Math.min(Math.max(h.index, 0), h.items.length - 1);
-  return shownInContinue(i, h.items.length, (j) => { const p = progressOf(h.items[j].url); return !!p && finished(p); });
+  return shownInContinue(i, h.items.length, (j) => { const p = progressOf(h.items[j].url); return !!p && finished(p, isFilmUrl(h.items[j].url)); });
 }
 
 // ---- Aspect ratio ----

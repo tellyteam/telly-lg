@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { isFullscreen, isWebOS, setFullscreen } from "../lib/backend";
+  import { isFullscreen, isTV, setFullscreen } from "../lib/backend";
   import * as P from "../lib/playback";
   import { app, type PlayRequest } from "../lib/state.svelte";
   import { attach, type Attached, type Track } from "../lib/video";
@@ -82,7 +82,7 @@
     nextDismissed = false;
     audio = subs = [];
     const target = request.items[i];
-    const resumeAt = live ? 0 : startAt ?? P.resumePosition(app.progressOf(target.url));
+    const resumeAt = live ? 0 : startAt ?? P.resumePosition(app.progressOf(target.url), P.isFilmUrl(target.url));
     const attached = await attach(video, target.url, {
       live,
       onError: (msg) => { if (id === loadId) { error = msg; waiting = false; } },
@@ -248,6 +248,7 @@
   // ---- Scrubbing ----
 
   let scrub = $state<HTMLDivElement>()!;
+  let scrubWidth = $state(0);
   let hoverMs = $state<number | null>(null);
   let hoverX = $state(0);
   let dragging = false;
@@ -294,6 +295,13 @@
       e.preventDefault();
       return;
     }
+    // On a TV, Back in the control bar hides the controls first; the next Back leaves.
+    if (isTV && k === "Escape" && !menu && (document.activeElement as HTMLElement | null)?.closest?.(".ctrls, .back")) {
+      e.preventDefault();
+      (document.activeElement as HTMLElement).blur();
+      if (playing) awake = false;
+      return;
+    }
     if (k === "Escape") {
       e.preventDefault();
       if (menu) menu = null;
@@ -303,7 +311,7 @@
     if (e.metaKey || e.ctrlKey) return;
     const handled = true;
     // On a TV the remote has its own volume buttons: Up and Down just show the controls, OK plays or pauses.
-    if (isWebOS) {
+    if (isTV) {
       const inBar = (document.activeElement as HTMLElement | null)?.closest?.(".ctrls, .menu, .back");
       // In the control bar (or a menu), the remote moves between buttons as everywhere else.
       if (inBar && k.startsWith("Arrow")) return;
@@ -314,7 +322,6 @@
         return;
       }
       if (k === "Enter" && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); togglePlay(); return; }
-      if (k === "Escape" && inBar && !menu) { e.preventDefault(); (document.activeElement as HTMLElement).blur(); return; }
     }
     switch (k) {
       case " ": case "k": togglePlay(); break;
@@ -326,8 +333,9 @@
       case "m": muted = !muted; flash(muted ? "Muted" : "Sound on"); break;
       case "p": void togglePip(); break;
       case "n": if (hasNext) go(index + 1, 0); break;
-      case "PageUp": case "[": if (live) go((index - 1 + request.items.length) % request.items.length); break;
-      case "PageDown": case "]": if (live) go((index + 1) % request.items.length); break;
+      // Channel up (CH +, PageUp) is the next channel, as on a TV: 1 → 2. [ and ] are previous and next.
+      case "PageDown": case "[": if (live) go((index - 1 + request.items.length) % request.items.length); break;
+      case "PageUp": case "]": if (live) go((index + 1) % request.items.length); break;
       case "a": menu = menu === "aspect" ? null : "aspect"; break;
       default: return;
     }
@@ -373,7 +381,7 @@
     void load(index, request.startAt);
     wake();
     // On a TV the remote now talks to the player, not to whatever was focused behind it.
-    if (isWebOS) stage.focus({ preventScroll: true });
+    if (isTV) stage.focus({ preventScroll: true });
     return () => ro.disconnect();
   });
 
@@ -466,9 +474,9 @@
     <div class="ov-bottom">
       {#if !live}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="scrub" bind:this={scrub} onpointerdown={scrubDown} onpointermove={scrubMove} onpointerup={scrubUp} onpointerleave={() => (hoverMs = null)}>
-          <div class="progress"><i style:width="{duration ? (time / duration) * 100 : 0}%"></i></div>
-          <div class="knob" style:left="{duration ? (time / duration) * 100 : 0}%"></div>
+        <div class="scrub" bind:this={scrub} bind:clientWidth={scrubWidth} onpointerdown={scrubDown} onpointermove={scrubMove} onpointerup={scrubUp} onpointerleave={() => (hoverMs = null)}>
+          <div class="progress"><i style:transform="scaleX({duration ? time / duration : 0})"></i></div>
+          <div class="knob" style:transform="translateX({duration ? (time / duration) * scrubWidth : 0}px)"></div>
           {#if hoverMs !== null}<div class="tip" style:left="{hoverX}%">{P.clock(hoverMs)}</div>{/if}
         </div>
         <div class="times"><span>{P.clock(time)}</span><span>{duration ? `−${P.clock(duration - time)}` : ""}</span></div>
@@ -488,7 +496,7 @@
           <button class="ic" data-tip="Forward 10s (→)" aria-label="Forward 10s (→)" onclick={() => seekBy(10_000)}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 12a8 8 0 1 1-3-6.2M20 4v4h-4" /></svg></button>
           {#if hasNext}<button class="ic" data-tip="Next episode (N)" aria-label="Next episode (N)" onclick={() => go(index + 1, 0)}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 5l9 7-9 7zM16 5h3v14h-3z" /></svg></button>{/if}
         {/if}
-        {#if !isWebOS}<button class="ic" data-tip={muted ? "Unmute (M)" : "Mute (M)"} aria-label={muted ? "Unmute (M)" : "Mute (M)"} onclick={() => (muted = !muted)}>
+        {#if !isTV}<button class="ic" data-tip={muted ? "Unmute (M)" : "Mute (M)"} aria-label={muted ? "Unmute (M)" : "Mute (M)"} onclick={() => (muted = !muted)}>
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 9h4l5-4v14l-5-4H4z" />{#if !muted && volume > 0}<path d="M16 8a5 5 0 0 1 0 8" fill="none" stroke="currentColor" stroke-width="2" />{:else}<path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" stroke-width="2" />{/if}</svg>
         </button>
         <input class="vol" type="range" min="0" max="1" step="0.01" value={muted ? 0 : volume} aria-label="Volume"
@@ -498,8 +506,8 @@
         {#if !live}<button class="ic" data-tip="Speed" aria-label="Speed" onclick={() => (menu = menu === "speed" ? null : "speed")}>{speed === 1 ? "1×" : `${speed}×`}</button>{/if}
         <button class="ic" data-tip="Audio & subtitles" aria-label="Audio & subtitles" onclick={() => { readTracks(); menu = menu === "tracks" ? null : "tracks"; }}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 5h16v14H4zm2 9h5v2H6zm7 0h5v2h-5zm-7-3h12v2H6z" /></svg></button>
         <button class="ic" data-tip="Aspect ratio (A)" aria-label="Aspect ratio (A)" onclick={() => (menu = menu === "aspect" ? null : "aspect")}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 12h-2v3h-3v2h5v-5zM7 9h3V7H5v5h2V9zm14-6H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z" /></svg></button>
-        {#if !isWebOS}<button class="ic" data-tip="Picture in picture (P)" aria-label="Picture in picture (P)" onclick={togglePip}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-8v6h8v-6zm4 8V5c0-1.1-.9-2-2-2H3C1.9 3 1 3.9 1 5v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 0H3V5h18v14z" /></svg></button>{/if}
-        {#if !isWebOS}<button class="ic" data-tip="Full screen (F)" aria-label="Full screen (F)" onclick={toggleFullscreen}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg></button>{/if}
+        {#if !isTV}<button class="ic" data-tip="Picture in picture (P)" aria-label="Picture in picture (P)" onclick={togglePip}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-8v6h8v-6zm4 8V5c0-1.1-.9-2-2-2H3C1.9 3 1 3.9 1 5v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2zm-2 0H3V5h18v14z" /></svg></button>{/if}
+        {#if !isTV}<button class="ic" data-tip="Full screen (F)" aria-label="Full screen (F)" onclick={toggleFullscreen}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg></button>{/if}
       </div>
     </div>
   </div>
@@ -512,6 +520,7 @@
   /* Sized and placed for the aspect (see frame): the picture fills exactly that box. */
   video.framed { object-fit: fill; }
   .ui { opacity: 0; transition: opacity .25s; pointer-events: none; }
+  :global(html.tv) .ui { transition: opacity .25s !important; }
   .awake .ui { opacity: 1; pointer-events: auto; }
   .ov-top { position: absolute; left: 0; right: 0; top: 0; padding: 18px 34px 60px 34px; display: flex; gap: 16px; align-items: flex-start; background: linear-gradient(180deg, rgba(7,10,15,.8), transparent); }
   .back { width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.1); display: grid; place-items: center; cursor: pointer; font-size: 20px; border: 0; color: #fff; flex: none; }
@@ -519,9 +528,11 @@
   .t { font-size: 22px; font-weight: 600; } .s { color: var(--muted); }
   .ov-bottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 70px 34px 22px; background: linear-gradient(0deg, rgba(7,10,15,.92), transparent); }
   .scrub { position: relative; height: 18px; display: flex; align-items: center; cursor: pointer; touch-action: none; }
-  .scrub .progress { flex: 1; height: 4px; transition: height .12s; }
-  .scrub:hover .progress { height: 6px; }
-  .knob { position: absolute; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: #fff; box-shadow: 0 0 10px var(--glow); }
+  /* Transforms, not sizes: the bar moves several times a second over the video. */
+  .scrub .progress { flex: 1; height: 4px; transition: transform .12s; }
+  .scrub:hover .progress { transform: scaleY(1.5); }
+  .scrub .progress i { width: 100%; transform-origin: 0 50%; }
+  .knob { position: absolute; left: 0; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: #fff; box-shadow: 0 0 10px var(--glow); }
   .tip { position: absolute; bottom: 22px; transform: translateX(-50%); font-size: 12px; padding: 3px 8px; border-radius: 6px; background: rgba(10,14,20,.92); pointer-events: none; }
   .times { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin: 6px 0 10px; }
   .livebadge { color: #ff6b6f; font-weight: 700; letter-spacing: .04em; }

@@ -11,10 +11,10 @@ describe("PLAYBACK.md", () => {
     expect(P.advanceAtEnd(c.hasNext, c.autoNext, c.dismissed)).toBe(c.advance);
   });
   it.each(cases.watched)("watched: $name", (c) => {
-    expect(P.watched(c.positionMs, c.durationMs)).toBe(c.watched);
+    expect(P.watched(c.positionMs, c.durationMs, c.film)).toBe(c.watched);
   });
   it.each(cases.resume)("resume: $name", (c) => {
-    expect(P.startAt(c.positionMs, c.durationMs)).toBe(c.startAt);
+    expect(P.startAt(c.positionMs, c.durationMs, c.film)).toBe(c.startAt);
   });
   it.each(cases.continue)("continue watching: $name", (c) => {
     const watched = (i: number) => c.watched.includes(i);

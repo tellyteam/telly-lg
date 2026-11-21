@@ -1,4 +1,4 @@
-/** Where the lists come from. The login never leaves the computer except to this provider. */
+/** Where the lists come from. The login is never synced, and goes from this device only to this provider. */
 export type Provider =
   | { kind: "xtream"; name: string; server: string; username: string; password: string; allowCleartext: boolean }
   | { kind: "m3u"; name: string; url: string; allowCleartext: boolean };

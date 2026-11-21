@@ -41,8 +41,11 @@ To update, install the new `.ipk` the same way; everything you've set up is kept
 
 ## Privacy
 
-- telly talks only to your provider. No accounts, analytics, adverts or tracking.
+- telly talks only to your provider, and to telly's relay while Setup shows its QR code. No accounts,
+  analytics, adverts or tracking.
 - Your provider login, history, progress and My List stay on the TV, in telly's own storage.
+- Your login is never part of sync. If you send it from your phone to the QR code on Setup,
+  it's sealed so only this TV can read it, and the TV shows it to you to check before it connects.
 - Plain HTTP is refused unless you allow it for your provider (some providers have no HTTPS).
 
 ## How it works
@@ -69,6 +72,7 @@ Requires Node 22+.
 npm install
 npm test           # unit tests
 npm run build      # build-webos/io.github.tellyteam.telly_<version>_all.ipk
+npm run build:tizen  # build-tizen/telly_<version>.wgt, for Samsung TVs: see SAMSUNG.md
 ```
 
 LG's [webOS TV Simulator](https://webostv.developer.lge.com/develop/tools/simulator-introduction)

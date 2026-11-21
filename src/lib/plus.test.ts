@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayText, FIRST_WATCH_MS, offersPlus, plusReminderDue } from "./plus";
+import { dayText, FIRST_WATCH_MS, mayHavePlus, offersPlus, plusReminderDue } from "./plus";
 import { checkout, onSale, plus, type RelayRequest, type Transport } from "./sync/client";
 import { deriveKeys } from "./sync/crypto";
 
@@ -55,6 +55,13 @@ describe("telly Plus on the relay", () => {
     expect(await onSale(answer(200, { onSale: true }), "https://relay.test")).toBe(true);
     expect(await onSale(answer(500, {}), "https://relay.test")).toBe(false);
     expect(await onSale(async () => { throw new Error("offline"); }, "https://relay.test")).toBe(false);
+  });
+
+  it("doesn't offer a linked household telly Plus until the relay says it has none", () => {
+    expect(mayHavePlus(true, null)).toBe(true); // linked, not asked yet
+    expect(mayHavePlus(true, { until: 20_000, onSale: true })).toBe(true);
+    expect(mayHavePlus(true, { until: null, onSale: true })).toBe(false); // ran out
+    expect(mayHavePlus(false, null)).toBe(false);
   });
 
   it("writes the relay's days as dates", () => {
