@@ -93,10 +93,8 @@ In this order: each one depends on the one before.
 
 ## Known gaps
 
-- **MKV, HEVC and 4K** go through the TV's `<video>` element (and hls.js / mpegts.js), not Samsung's
-  AVPlay player. If MKV or HEVC files don't play, an AVPlay path in `src/lib/video.ts` is next.
-- **Leaving with Home while playing**: the player doesn't yet pause when the TV hides telly
-  (`visibilitychange`); Samsung's certification requires it.
+- **HEVC and 4K** go through the TV's `<video>` element, not Samsung's AVPlay player. On the Frame
+  (November 2026) a film labelled HEVC played, at 1280×720; a "4K" film turned out to be 1920×1036,
+  so true 4K is still untried. If one doesn't play, an AVPlay path in `src/lib/video.ts` is next.
 - **telly Plus** is offered as on LG (Paddle by QR code). Samsung may require Samsung Checkout for
   its store; this is fine for testing.
-- Not yet tried on any Samsung TV.

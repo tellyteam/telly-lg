@@ -375,6 +375,38 @@
   $effect(() => { if (video) { video.volume = volume; video.muted = muted; } });
   $effect(() => { if (video) video.playbackRate = speed; });
 
+  // ---- Hidden: Home on the remote, or another app opened over telly ----
+
+  // A film or episode pauses where it is (and is saved), and carries on when telly comes back, as
+  // Samsung asks of apps (it requires the pause for its store). Live TV stops altogether, since most
+  // providers allow one stream at a time, and starts again on return.
+  let liveStopped = false;
+  let pausedByHiding = false;
+  function onVisibility() {
+    if (document.hidden) {
+      if (live) {
+        loadId++;
+        clearTimeout(watchdog);
+        engine?.destroy();
+        engine = undefined;
+        liveStopped = true;
+      } else {
+        pausedByHiding = !video.paused;
+        video.pause();
+        saveProgress(true);
+      }
+      return;
+    }
+    if (liveStopped) {
+      liveStopped = false;
+      void load(index);
+    } else if (pausedByHiding) {
+      pausedByHiding = false;
+      video.play().catch(() => {});
+    }
+    wake();
+  }
+
   onMount(() => {
     const ro = new ResizeObserver(measure);
     ro.observe(stage);
@@ -382,7 +414,11 @@
     wake();
     // On a TV the remote now talks to the player, not to whatever was focused behind it.
     if (isTV) stage.focus({ preventScroll: true });
-    return () => ro.disconnect();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      ro.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   });
 
   onDestroy(() => {

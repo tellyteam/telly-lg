@@ -111,9 +111,15 @@
   }
 
   // When the full player closes, the preview stays stopped until a channel is clicked again.
+  // Hidden (Home, or another app over telly): the preview stops, and stays stopped until a channel is
+  // chosen again, as when the full player closes.
+  const onVisibility = () => { if (document.hidden) stopPreview(); };
+  document.addEventListener("visibilitychange", onVisibility);
+
   onDestroy(() => {
     stopPreview();
     clearInterval(clockTimer);
+    document.removeEventListener("visibilitychange", onVisibility);
   });
 
   /** A category, starting from its first channel on a TV (where the remote enters the list at the selected one). */

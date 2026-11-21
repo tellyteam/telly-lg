@@ -63,34 +63,87 @@ function host(url: string): string {
   }
 }
 
-async function get(url: string, signal?: AbortSignal): Promise<Response> {
+/** How long a provider may take to start answering, and how long it may then go quiet. */
+const FIRST_BYTE_MS = 45_000;
+const QUIET_MS = 30_000;
+
+/**
+ * A provider's answer, read in full. A provider that stops answering (or never starts) is given up
+ * on, so a refresh can't run for ten minutes; one that's slow but still sending is waited for, however
+ * long its list takes.
+ */
+async function get(url: string, signal?: AbortSignal): Promise<Uint8Array> {
   if (url.startsWith("http:") && !cleartext) {
     throw new Error(`Unencrypted HTTP to ${host(url)} is turned off. If your provider has no HTTPS, allow it in Settings.`);
   }
-  let res: Response;
+  const watchdog = new AbortController();
+  let stalled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const wait = (ms: number) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { stalled = true; watchdog.abort(); }, ms);
+  };
+  const onAbort = () => watchdog.abort();
+  signal?.addEventListener("abort", onAbort);
+  const why = (e: unknown, fallback: string) => {
+    if ((e as Error).name !== "AbortError") return new Error(fallback);
+    return stalled ? new Error(`${host(url)} stopped answering.`) : e;
+  };
   try {
-    res = await fetch(relayUrl(url), { signal });
-  } catch (e) {
-    if ((e as Error).name === "AbortError") throw e;
-    throw new Error(`Couldn't reach ${host(url)}.`);
+    wait(FIRST_BYTE_MS);
+    let res: Response;
+    try {
+      res = await fetch(relayUrl(url), { signal: watchdog.signal });
+    } catch (e) {
+      throw why(e, `Couldn't reach ${host(url)}.`);
+    }
+    // A web app can't see a redirect before it's followed, so one to plain HTTP is only caught here,
+    // and its answer isn't used. (The dev relay refuses it before it goes.)
+    if (isTV && res.url.startsWith("http:") && !cleartext) {
+      throw new Error(`${host(url)} redirected to unencrypted HTTP, which is turned off. If your provider has no HTTPS, allow it in Settings.`);
+    }
+    if (res.status === 502 || res.status === 403) throw new Error(await res.text());
+    if (!res.ok) throw new Error(`${host(url)} returned HTTP ${res.status}.`);
+    try {
+      return await readAll(res, () => wait(QUIET_MS));
+    } catch (e) {
+      throw why(e, `${host(url)} stopped part-way through.`);
+    }
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
   }
-  // A web app can't see a redirect before it's followed, so one to plain HTTP is only caught here,
-  // and its answer isn't used. (The dev relay refuses it before it goes.)
-  if (isTV && res.url.startsWith("http:") && !cleartext) {
-    throw new Error(`${host(url)} redirected to unencrypted HTTP, which is turned off. If your provider has no HTTPS, allow it in Settings.`);
+}
+
+/** The whole body, calling [progress] as each part arrives. */
+async function readAll(res: Response, progress: () => void): Promise<Uint8Array> {
+  progress();
+  const reader = res.body?.getReader();
+  if (!reader) return new Uint8Array(await res.arrayBuffer());
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value);
+    size += value.length;
+    progress();
   }
-  if (res.status === 502 || res.status === 403) throw new Error(await res.text());
-  if (!res.ok) throw new Error(`${host(url)} returned HTTP ${res.status}.`);
-  return res;
+  if (parts.length === 1) return parts[0];
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const part of parts) { all.set(part, at); at += part.length; }
+  return all;
 }
 
 export async function getText(url: string, signal?: AbortSignal): Promise<string> {
-  return (await get(url, signal)).text();
+  return new TextDecoder().decode(await get(url, signal));
 }
 
 /** The answer undecoded, for a worker to read: decoding tens of megabytes here would stall the screen. */
 export async function getBytes(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
-  return (await get(url, signal)).arrayBuffer();
+  const bytes = await get(url, signal);
+  return bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? bytes.buffer as ArrayBuffer : bytes.slice().buffer;
 }
 
 export async function getJson(url: string, signal?: AbortSignal): Promise<unknown> {
