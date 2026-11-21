@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { isTV } from "../lib/backend";
   import { ago, app, type Route } from "../lib/state.svelte";
+  import { focusFirst } from "../lib/tv";
   import Wordmark from "./Wordmark.svelte";
 
   const mod = "⌘";
@@ -26,6 +28,8 @@
   function open(name: Top | "settings") {
     app.go({ name });
     (document.activeElement as HTMLElement | null)?.blur();
+    // Already on that page, nothing redraws to take focus: hand it over here.
+    if (isTV) setTimeout(() => focusFirst());
   }
 </script>
 

@@ -30,8 +30,10 @@
   <div class="page-head"><h2>{kind === "films" ? "Films" : "Series"}</h2>
     {#if groups}<span class="sub">{total.toLocaleString()} {kind} · {groups.length} categories</span>{/if}</div>
   {#if groups?.length}
-    <div class="chips">
-      {#each groups as g (g.name)}<button class="chip" onclick={() => app.go({ name: "grid", kind, group: g.name })}>{g.name}</button>{/each}
+    <div class="track-clip">
+      <div class="chips">
+        {#each groups as g (g.name)}<button class="chip" onclick={() => app.go({ name: "grid", kind, group: g.name })}>{g.name}</button>{/each}
+      </div>
     </div>
     {#if watching.length}
       <Row title="Continue watching">

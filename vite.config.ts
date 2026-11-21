@@ -6,8 +6,8 @@ import { devRelay } from "./dev/relay";
 const { version } = JSON.parse(readFileSync("package.json", "utf8"));
 
 /**
- * LG TVs load the app from local files, where module scripts don't run: the TV build is one
- * classic script, with relative paths.
+ * LG and Samsung TVs load the app from local files, where module scripts don't run: the TV build is
+ * one classic script, with relative paths.
  */
 function classicScript(): Plugin {
   return {
@@ -72,12 +72,28 @@ const tvCheck = {
     const bad = rule.selector.match(/:(is|where|has)\(/);
     if (bad) throw new Error(`CSS for older TVs: "${rule.selector}" uses :${bad[1]}(), which Chromium 68 drops`);
   },
-  Declaration(decl: { prop: string; value: string }) {
+  Declaration(decl: { prop: string; value: string; important?: boolean; parent?: { selector?: string } }) {
     if (decl.prop === "aspect-ratio" || /mask-composite/.test(decl.prop)) {
       throw new Error(`CSS for older TVs: ${decl.prop} doesn't work on Chromium 68; size it, or use one mask layer`);
     }
+    // Speed on a TV (SPEED.md): what a TV's processor can't animate or draw quickly.
+    const where = decl.parent?.selector ?? "";
+    if (/^transition(-property)?$/.test(decl.prop) && LAYOUT.test(decl.value)) {
+      throw new Error(`Slow on a TV: "${where}" transitions ${decl.value.match(LAYOUT)![0]}, which re-lays out and redraws every frame; animate transform or opacity`);
+    }
+    // On a TV only !important transitions run (app.css turns the rest off), so these must be GPU-only.
+    if (/^transition(-property)?$/.test(decl.prop) && decl.important && decl.value.trim() !== "none" && decl.value.split(",").some((t) => !/^\s*(transform|opacity)\b/.test(t))) {
+      throw new Error(`Slow on a TV: "${where}" lets "${decl.value}" animate on TVs; only transform and opacity may`);
+    }
+    if (decl.prop.endsWith("backdrop-filter") && !BACKDROP_OK.test(where)) {
+      throw new Error(`Slow on a TV: "${where}" uses backdrop-filter, which redraws everything behind it each frame; use a solid background`);
+    }
   },
 };
+/** Properties whose animation re-lays out the page. */
+const LAYOUT = /\b(width|height|top|left|right|bottom|margin[\w-]*|padding[\w-]*|font-size|line-height|inset)\b/;
+/** backdrop-filter only where a TV never shows it: the top bar's search (html.tv hides it). */
+const BACKDROP_OK = /^\.topbar \.search-box$/;
 
 const flexGap = {
   postcssPlugin: "telly-flex-gap",
@@ -94,14 +110,17 @@ const flexGap = {
   },
 };
 
-export default defineConfig(({ mode }) => mode === "webos" ? {
+// `--mode webos` builds for LG TVs (dist-webos), `--mode tizen` for Samsung TVs (dist-tizen). Both run
+// the same web app; Samsung's oldest supported TVs (Tizen 5.5, 2020) run Chromium 69, newer than LG's.
+export default defineConfig(({ mode }) => mode === "webos" || mode === "tizen" ? {
   plugins: [svelte(), classicScript()],
   css: { postcss: { plugins: [unwrapWhere, mathFallbacks, flexGap, tvCheck] } },
   define: { __APP_VERSION__: JSON.stringify(version) },
   base: "./",
   build: {
-    outDir: "dist-webos",
-    // webOS 5 (2020 TVs) runs Chromium 68, webOS 6 (2021) Chromium 79. Newer APIs: lib/polyfills.ts.
+    outDir: `dist-${mode}`,
+    // webOS 5 (2020 TVs) runs Chromium 68, webOS 6 (2021) Chromium 79; Tizen 5.5 (2020) Chromium 69.
+    // Newer APIs: lib/polyfills.ts.
     target: ["chrome68"],
     modulePreload: false,
     cssCodeSplit: false,

@@ -1,6 +1,6 @@
 import { createCipheriv, hkdfSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { deriveKeys, formatCode, newCode, normaliseCode, open, providerTag, seal } from "./crypto";
+import { deriveKeys, formatCode, newCode, normaliseCode, open, providerTag, seal, sealBox } from "./crypto";
 import { bundleJson, mergeBundles, parseBundle } from "./bundle";
 import { normaliseServer, syncIdentity, type Provider } from "../model";
 import { merge, parse, parseSection, sectionObject, trim, TOMBSTONE_MS, type Parcel } from "./parcel";
@@ -228,16 +228,78 @@ describe("version 2", () => {
 });
 
 describe("joining by QR code", () => {
+  const LINK = "https://tv.gettelly.app/#id=00112233445566778899aabbccddeeff&key=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
+  const NONCE = Uint8Array.from({ length: 12 }, (_, i) => i + 1);
+  const fromHex = (h: string) => Uint8Array.from(Buffer.from(h, "hex"));
+
   it("matches the shared join vector", () => {
     const j = parseJoinLink("telly://join?id=00112233445566778899aabbccddeeff&key=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")!;
-    const box = sealJoin(j, "0123456789ABCDEF", Uint8Array.from({ length: 12 }, (_, i) => i + 1));
+    const box = sealJoin(j, { code: "0123456789ABCDEF" }, NONCE);
     expect(Buffer.from(box).toString("hex")).toBe("010102030405060708090a0b0c7ec839ba88f1d2bc6e9252752327df1e757bd8bfd52e1480e77d847a23a8054b9746a38ee4fdc41370785a");
-    expect(openJoin(j, box)).toBe("0123456789ABCDEF");
+    expect(openJoin(j, box)).toEqual({ code: "0123456789ABCDEF" });
+  });
+
+  it("reads both forms of link, and shows the new one", () => {
+    const old = parseJoinLink("telly://join?id=00112233445566778899aabbccddeeff&key=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")!;
+    const j = parseJoinLink(LINK)!;
+    expect(j.id).toBe("00112233445566778899aabbccddeeff");
+    expect(j.key).toEqual(old.key);
+    expect(joinLink(j)).toBe(LINK);
+    // Either order, unknown parameters, an upper-case id and host.
+    expect(parseJoinLink("HTTPS://TV.GETTELLY.APP/#v=2&key=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8&id=00112233445566778899AABBCCDDEEFF")?.id).toBe(j.id);
+    expect(parseJoinLink("https://tv.gettelly.app/join#id=00112233445566778899aabbccddeeff&key=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")).toBeNull();
+    expect(parseJoinLink("https://evil.example/#id=00112233445566778899aabbccddeeff&key=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")).toBeNull();
+    expect(parseJoinLink("http://tv.gettelly.app/#id=00112233445566778899aabbccddeeff&key=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8")).toBeNull();
+  });
+
+  it("opens vector A, a provider alone", () => {
+    const box = fromHex("010102030405060708090a0b0c7ec82aa783e299e229d0417d6b3181412c27c3c4b51524b7c43e9406b29418a4e981b9e54cf895bfe4fa98c9e7a89d2fe8933dc2eebb530957107ca10a2f57631a47331387c17fcc6967c31f895662cab8120a0a8f4cdcec58e6f77853894f51f3e4565fcf047d16d5a15293d9923ae0bae54bb4be0ed202164c83b2d9e959163a1370d08fa409c4f0c60f71f75a4cbbac013310a3aa08");
+    const message = { provider: { kind: "xtream", name: "My TV", server: "example.com:8080", username: "me", password: "p@ss wörd", allowCleartext: true } } as const;
+    expect(openJoin(parseJoinLink(LINK)!, box)).toEqual(message);
+    expect(sealJoin(parseJoinLink(LINK)!, message, NONCE)).toEqual(box);
+  });
+
+  it("opens vector B, a code and a playlist", () => {
+    const box = fromHex("010102030405060708090a0b0c7ec839ba88f1d2bc6e9252752327df1e757bd8bfd52e1480e77dd506eec419b3ed80fead4c8f97bddbc5d481e7e1da30ad836dccf6f7571c535f36ef4d2d1679051129199d9929943b618a55d45d7bc6b0405c4dcc4a91ad55faff7854d04d10e2e4405fde28620a8295fd40ca846ca9e0f005e2b718fd1d16508cffebfa6ed7ea178a5377d65ad6f4018d");
+    expect(openJoin(parseJoinLink(LINK)!, box)).toEqual({
+      code: "0123456789ABCDEF",
+      provider: { kind: "m3u", name: "", url: "https://example.com/list.m3u", allowCleartext: false },
+    });
+  });
+
+  it("reads a message only within its limits", () => {
+    const j = newJoin();
+    const raw = (o: unknown) => openJoin(j, sealBox(j.key, new TextEncoder().encode(`telly-join v1|${j.id}`), JSON.stringify(o), NONCE));
+    const xtream = (p: Record<string, unknown>) => raw({ provider: { kind: "xtream", server: "example.com", username: "me", password: "pw", ...p } });
+    // Trimmed, a missing name and switch read as empty and off, unknown fields ignored.
+    expect(xtream({ server: " example.com:8080 ", username: " me ", password: " pw ", extra: 1 })).toEqual({
+      provider: { kind: "xtream", name: "", server: "example.com:8080", username: "me", password: " pw ", allowCleartext: false },
+    });
+    expect(xtream({ server: "s".repeat(255), username: "u".repeat(255), password: "p".repeat(255), name: "n".repeat(60) })?.provider).toBeTruthy();
+    expect(xtream({ server: "s".repeat(256) })).toBeNull();
+    expect(xtream({ username: "u".repeat(256) })).toBeNull();
+    expect(xtream({ password: "p".repeat(256) })).toBeNull();
+    expect(xtream({ name: "n".repeat(61) })).toBeNull();
+    expect(xtream({ password: "" })).toBeNull();
+    expect(xtream({ allowCleartext: "yes" })).toBeNull();
+    expect(raw({ provider: { kind: "m3u", url: `https://example.com/${"x".repeat(2048 - 20)}` } })?.provider).toBeTruthy();
+    expect(raw({ provider: { kind: "m3u", url: `https://example.com/${"x".repeat(2048 - 19)}` } })).toBeNull();
+    expect(raw({ provider: { kind: "stalker", url: "https://example.com" } })).toBeNull();
+    // A bad code makes the whole message unreadable, even with a good provider.
+    expect(raw({ code: "nope", provider: { kind: "m3u", url: "https://example.com/a.m3u" } })).toBeNull();
+    // Codes are normalised, as when typed.
+    expect(raw({ code: "0123-4567-89ab-cdef", extra: true })).toEqual({ code: "0123456789ABCDEF" });
+  });
+
+  it("reads nothing from a message with neither a code nor a provider", () => {
+    const j = newJoin();
+    expect(openJoin(j, sealJoin(j, {}))).toBeNull();
+    expect(openJoin(j, sealBox(j.key, new TextEncoder().encode(`telly-join v1|${j.id}`), "[]", NONCE))).toBeNull();
   });
 
   it("opens only its own box", () => {
     const j = newJoin();
-    const box = sealJoin(j, "0123456789ABCDEF");
+    const box = sealJoin(j, { code: "0123456789ABCDEF" });
     expect(openJoin(newJoin(), box)).toBeNull();
     expect(openJoin({ id: newJoin().id, key: j.key }, box)).toBeNull();
     expect(parseJoinLink(joinLink(j))?.id).toBe(j.id);

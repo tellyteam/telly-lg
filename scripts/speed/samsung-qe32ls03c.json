@@ -1,0 +1,30 @@
+{
+  "recorded": "2026-11-21",
+  "page": "telly",
+  "scenarios": {
+    "rows": {
+      "main": 187,
+      "raster": 94
+    },
+    "rows-down": {
+      "main": 361,
+      "raster": 333
+    },
+    "menu": {
+      "main": 309,
+      "raster": 127
+    },
+    "live": {
+      "main": 130,
+      "raster": 131
+    },
+    "films": {
+      "main": 921,
+      "raster": 756
+    },
+    "chips": {
+      "main": 207,
+      "raster": 5
+    }
+  }
+}

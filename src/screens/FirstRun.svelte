@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import { isWebOS, syncTransport } from "../lib/backend";
+  import { isTV, syncTransport } from "../lib/backend";
   import { app, RELAY } from "../lib/state.svelte";
-  import { collectJoin, joinLink, newJoin } from "../lib/sync/join";
+  import { collectJoin, joinLink, newJoin, type JoinMessage } from "../lib/sync/join";
   import Wordmark from "../components/Wordmark.svelte";
   import QrCode from "../components/QrCode.svelte";
   /**
@@ -18,7 +18,7 @@
   let code = $state("");
   let linking = $state(false);
   let error = $state<string | null>(null);
-  const device = isWebOS ? "TV" : "computer";
+  const device = isTV ? "TV" : "computer";
 
   async function link(withCode: string) {
     linking = true;
@@ -33,7 +33,23 @@
     }
   }
 
-  // While the QR code shows, the relay is asked every few seconds whether a code has been left.
+  /**
+   * What the phone sent: a link code alone links here; a provider (with or without a code) goes to
+   * Setup, which links with the code first and then shows the provider's summary to check.
+   */
+  async function receive(m: JoinMessage) {
+    const code = app.syncShown ? m.code : undefined;
+    if (m.provider) {
+      app.received = { provider: m.provider, code };
+      onSetUp();
+    } else if (code) {
+      await link(code);
+    }
+    join = newJoin();
+  }
+
+  // While the QR code shows, the relay is asked every 3 seconds whether anything has been left.
+  // One code is kept for 9 minutes, inside the box's 10.
   let timer: ReturnType<typeof setInterval> | undefined;
   let asks = 0;
   $effect(() => {
@@ -43,10 +59,10 @@
     asks = 0;
     timer = setInterval(async () => {
       if (linking) return;
-      if (++asks > 300) { join = newJoin(); return; }
+      if (++asks > 180) { join = newJoin(); return; }
       try {
         const found = await collectJoin(syncTransport, RELAY, current);
-        if (found) { clearInterval(timer); await link(found); }
+        if (found) { clearInterval(timer); await receive(found); }
       } catch (e) {
         error = (e as Error).message;
         join = newJoin();
@@ -68,7 +84,7 @@
 
 <svelte:window {onkeydowncapture} />
 
-<div class="setup">
+<div class="setup" class:typing class:keyboard={typing}>
   <div class="card-form">
     {#if step === "welcome"}
       <div class="wordmark big"><Wordmark height={44} /></div>
@@ -88,9 +104,9 @@
       <h1>Join your other devices</h1>
       <p class="lead">Syncing is part of telly Plus. Without it, each device keeps its own progress.</p>
       <div class="pair">
-        <QrCode text={joinLink(join)} />
+        <QrCode text={joinLink(join)} size={isTV ? 120 : 168} />
         <div>
-          <p class="lead">On your iPhone or iPad, open telly and go to Settings → Sync → Scan a new device's QR code.</p>
+          <p class="lead">On your iPhone or iPad, open telly and go to Settings → Set up a TV. It can send your provider's details too, so there's nothing to type here.</p>
           <p class="hint">{linking ? "Linking…" : "Waiting for your other device…"}</p>
         </div>
       </div>
@@ -108,7 +124,7 @@
         </div>
       {/if}
       {#if error}<div class="error">{error}</div>{/if}
-      <p class="hint">Provider logins are never shared: you'll sign in on this {device} next.</p>
+      <p class="hint">Provider logins are never part of sync. Send yours from your phone when you link, sealed so only this {device} can read it, or sign in on this {device} next.</p>
     {/if}
   </div>
 </div>
@@ -124,6 +140,9 @@
   ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
   .pair { display: flex; gap: 20px; align-items: center; }
   .pair > div { display: flex; flex-direction: column; gap: 8px; }
+  /* A TV's 960×540 screen: a little tighter, so the join step fits with the code field open. */
+  :global(html.tv) .card-form { padding: 24px 30px; gap: 12px; }
+  :global(html.tv) h1 { font-size: 26px; }
   .code { font: inherit; font-family: ui-monospace, monospace; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,.15);
     background: rgba(255,255,255,.06); color: var(--text); width: 260px; }
 </style>

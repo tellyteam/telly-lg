@@ -12,13 +12,15 @@
 <div class="screen">
   <TopBar />
   <div class="page-head"><h2>My List</h2><span class="sub">Hover a title and click ♥ to add or remove it</span></div>
-  <div class="chips">
-    <button class="chip" class:sel={tab === "all"} onclick={() => (tab = "all")}>All</button>
-    {#if app.provider?.kind === "xtream"}
-      <button class="chip" class:sel={tab === "series"} onclick={() => (tab = "series")}>Series · {favs.series.length}</button>
-      <button class="chip" class:sel={tab === "films"} onclick={() => (tab = "films")}>Films · {favs.films.length}</button>
-    {/if}
-    <button class="chip" class:sel={tab === "live"} onclick={() => (tab = "live")}>Channels · {favs.live.length}</button>
+  <div class="track-clip">
+    <div class="chips">
+      <button class="chip" class:sel={tab === "all"} onclick={() => (tab = "all")}>All</button>
+      {#if app.provider?.kind === "xtream"}
+        <button class="chip" class:sel={tab === "series"} onclick={() => (tab = "series")}>Series · {favs.series.length}</button>
+        <button class="chip" class:sel={tab === "films"} onclick={() => (tab = "films")}>Films · {favs.films.length}</button>
+      {/if}
+      <button class="chip" class:sel={tab === "live"} onclick={() => (tab = "live")}>Channels · {favs.live.length}</button>
+    </div>
   </div>
   {#if !count}
     <div class="empty"><b>Nothing saved yet</b>Hover any film, series or channel and click ♥, or use “＋ My List” on its page.</div>

@@ -19,7 +19,7 @@
   });
 
   const progress = $derived(app.progressOf(film.url));
-  const resumable = $derived(!!progress && P.resumePosition(progress) > 0);
+  const resumable = $derived(!!progress && P.resumePosition(progress, true) > 0);
   const fav = $derived(app.isFavourite("film", film.id));
 </script>
 

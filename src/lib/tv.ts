@@ -1,5 +1,5 @@
 /**
- * Remote-control support for LG TVs: the arrow keys move focus to the nearest thing in that
+ * Remote-control support for LG and Samsung TVs: the arrow keys move focus to the nearest thing in that
  * direction, OK presses it, and the remote's Back, channel and media keys become the keys the
  * rest of telly already understands (Escape, PageUp/PageDown, space…).
  */
@@ -9,13 +9,17 @@
 const FOCUSABLE = ["button:not([disabled])", "a[href]", "input:not([disabled])", "select", "textarea", "[tabindex]"]
   .map((s) => `${s}:not([tabindex="-1"])`).join(", ");
 
-/** webOS remote key codes, as the keys the app already handles. */
+/** LG and Samsung remote key codes, as the keys the app already handles. */
 const KEYS: Record<number, string> = {
-  461: "Escape", // Back
-  33: "PageUp", // Channel up
-  34: "PageDown", // Channel down
+  461: "Escape", // Back (LG)
+  10009: "Escape", // Back (Samsung)
+  33: "PageUp", // Channel up (LG)
+  34: "PageDown", // Channel down (LG)
+  427: "PageUp", // Channel up (Samsung)
+  428: "PageDown", // Channel down (Samsung)
   415: " ", // Play
   19: " ", // Pause
+  10252: " ", // Play/pause (Samsung)
   412: "ArrowLeft", // Rewind
   417: "ArrowRight", // Fast forward
 };
@@ -47,6 +51,9 @@ export function nearest(from: DOMRect, dir: Dir, candidates: HTMLElement[]): HTM
     const overlaps = dir === "ArrowLeft" || dir === "ArrowRight"
       ? r.bottom > from.top && r.top < from.bottom
       : r.right > from.left && r.left < from.right;
+    // Off the row (or column), only things wholly past this one: ▶ from a button at the right edge
+    // shouldn't drop to a switch below that sits a few points further right.
+    if (!overlaps && along < 0) continue;
     const score = Math.max(0, along) + (overlaps ? 0 : across * 3) + (overlaps ? 0 : 1000);
     if (score < bestScore) { bestScore = score; best = el; }
   }
@@ -78,10 +85,11 @@ function scroller(el: HTMLElement, axis: "x" | "y"): HTMLElement | null {
  * row, about a card's width of room stays ahead (22%) and the first card keeps the page margin;
  * down the page, the whole row shows, heading and all, and the billboard brings back the top.
  */
-function focus(el: HTMLElement) {
+export function focus(el: HTMLElement) {
   el.focus({ preventScroll: true });
   const track = el.closest<HTMLElement>(".track, .chips");
-  if (track && scroller(el, "x") === track) {
+  if (track && getComputedStyle(track).overflowX === "visible") slide(track, el);
+  else if (track && scroller(el, "x") === track) {
     const t = track.getBoundingClientRect(), r = el.getBoundingClientRect();
     const pad = parseFloat(getComputedStyle(track).paddingLeft) || 0, ahead = t.width * 0.22;
     let dx = 0;
@@ -96,6 +104,53 @@ function focus(el: HTMLElement) {
   const v = page.getBoundingClientRect(), r = section.getBoundingClientRect();
   if (r.top < v.top) page.scrollBy({ top: r.top - v.top, behavior: "smooth" });
   else if (r.bottom > v.bottom) page.scrollBy({ top: Math.min(r.bottom - v.bottom, r.top - v.top), behavior: "smooth" });
+}
+
+/**
+ * A row on a TV: it slides with a transform (app.css), by the same rule as scrolling: about a
+ * card's width of room ahead, the first card at the page margin, and no further than its last card.
+ */
+function slide(track: HTMLElement, el: HTMLElement) {
+  const box = track.parentElement!.getBoundingClientRect(), t = track.getBoundingClientRect(), r = el.getBoundingClientRect();
+  const pad = parseFloat(getComputedStyle(track).paddingLeft) || 0, ahead = box.width * 0.22;
+  const x = Number(track.dataset.x ?? 0);
+  let dx = 0;
+  if (r.right > box.right - ahead) dx = r.right - (box.right - ahead);
+  else if (r.left < box.left + pad) dx = r.left - (box.left + pad);
+  if (!dx) return;
+  const last = track.lastElementChild?.getBoundingClientRect();
+  const end = last ? last.right - t.left + pad : 0; // where the strip ends, unmoved
+  const next = Math.max(0, Math.min(x + dx, end - box.width));
+  track.dataset.x = String(next);
+  track.style.transform = next ? `translateX(${-next}px)` : "";
+}
+
+/** Where focus was on a screen, so Back can put it there again: which stop it was, and how far down. */
+export type FocusMark = { index: number; scroll: number };
+
+export function markFocus(): FocusMark | undefined {
+  const main = document.querySelector<HTMLElement>("main");
+  const active = document.activeElement as HTMLElement | null;
+  if (!main || !active || !main.contains(active)) return;
+  const index = focusables(main).indexOf(active);
+  return index < 0 ? undefined : { index, scroll: main.querySelector(".screen")?.scrollTop ?? 0 };
+}
+
+/**
+ * Back on a screen: focus returns to where it was, with the page scrolled as it was. Rows render as
+ * the page scrolls, so this keeps trying for a moment until the stop is there again.
+ */
+export function restoreFocus(mark: FocusMark) {
+  let tries = 0;
+  const step = () => {
+    const main = document.querySelector<HTMLElement>("main");
+    const page = main?.querySelector<HTMLElement>(".screen");
+    if (page) page.scrollTop = mark.scroll;
+    const el = main ? focusables(main)[mark.index] : undefined;
+    if (el) return focus(el);
+    if (++tries < 30) setTimeout(step, 50);
+  };
+  setTimeout(step);
 }
 
 /** Puts focus on the first thing in [root] when nothing has it (a new screen opened). */
@@ -130,7 +185,8 @@ export function startTv(suspendedBase: () => boolean) {
     if (suspended()) return;
     const dir = e.key as Dir;
     if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(dir)) {
-      // OK on something that only reacts to clicks.
+      // OK on something that only reacts to clicks. preventDefault marks it handled: an element's own
+      // Enter handler checks e.defaultPrevented, so OK acts once, not twice.
       if (e.key === "Enter") {
         const t = e.target as HTMLElement;
         if (t?.getAttribute?.("role") === "button" || (t?.tabIndex >= 0 && !(t instanceof HTMLButtonElement || t instanceof HTMLInputElement || t instanceof HTMLAnchorElement))) {
@@ -154,13 +210,35 @@ export function startTv(suspendedBase: () => boolean) {
     // Up and Down stay on the page: past its last row they stop, rather than land in the side menu.
     // Left (from the first thing in a row) is the way to the menu.
     // Up and Down in the side menu stay in it, too.
+    // So do Live TV's columns (data-focus-column): Down from the last channel stops there.
     if ((dir === "ArrowUp" || dir === "ArrowDown") && active) {
-      const inRail = !!active.closest(".rail");
-      candidates = candidates.filter((el) => !!el.closest(".rail") === inRail);
+      const COLUMN = ".rail, [data-focus-column]";
+      const column = active.closest(COLUMN);
+      candidates = candidates.filter((el) => el.closest(COLUMN) === column);
+    }
+    // …and Left and Right leave the column (not to the filter box above the first channel), except to
+    // something level with this in it (Watch → Favourite beside the preview).
+    const ownColumn = active?.closest("[data-focus-column]");
+    if (ownColumn && (dir === "ArrowLeft" || dir === "ArrowRight")) {
+      const level = (el: HTMLElement) => { const r = el.getBoundingClientRect(); return r.bottom > from.top && r.top < from.bottom; };
+      candidates = candidates.filter((el) => !ownColumn.contains(el) || level(el));
+    }
+    // Left and Right stay in a row: past its end they stop, rather than land in another row.
+    // Left from its first card still goes to the side menu.
+    const track = active?.closest(".track");
+    if (track && (dir === "ArrowLeft" || dir === "ArrowRight")) {
+      candidates = candidates.filter((el) => track.contains(el) || (dir === "ArrowLeft" && !!el.closest(".rail")));
     }
     let next = nearest(from, dir, candidates);
     // Into the side menu: always its current page's item, not whichever is level with the card.
     if (next?.closest(".rail") && !active?.closest(".rail")) next = document.querySelector<HTMLElement>(".rail .nav.current") ?? next;
+    // Into a list that names its way in (data-focus-enter, selectors tried in turn, e.g. the selected
+    // channel, then the first): that, not whichever item is level with where focus was.
+    const list = next?.closest<HTMLElement>("[data-focus-enter]");
+    if (list && !list.contains(active)) {
+      const way = list.dataset.focusEnter!.split(";").map((s) => focusables(list).find((el) => el.matches(s.trim()))).find(Boolean);
+      if (way) next = way;
+    }
     e.preventDefault();
     if (next) focus(next);
   }, true);

@@ -2,7 +2,7 @@
   import Icon from "../components/Icon.svelte";
   import { onDestroy, tick } from "svelte";
   import Art from "../components/Art.svelte";
-  import { isWebOS } from "../lib/backend";
+  import { isTV } from "../lib/backend";
   import { playChannel } from "../lib/actions";
   import * as G from "../lib/guide";
   import type { Channel } from "../lib/model";
@@ -13,11 +13,13 @@
   const FAVOURITES = "★ Favourites";
   const ALL = "All channels";
 
-  // Start on the last channel watched, in its group.
+  // Start on the last channel watched. Favourites opens first when there are some (PLAYBACK.md,
+  // Live TV's Favourites); otherwise the last channel's group, or the first category.
   const last = app.history.find((h) => h.live);
   const lastChannel = last ? last.items[last.index] : undefined;
 
-  let category = $state(lastChannel && app.live?.some((g) => g.name === lastChannel.group) ? lastChannel.group : app.live?.[0]?.name ?? ALL);
+  let category = $state(app.favouriteItems().live.length ? FAVOURITES
+    : lastChannel && app.live?.some((g) => g.name === lastChannel.group) ? lastChannel.group : app.live?.[0]?.name ?? ALL);
   let filter = $state("");
   let selected = $state.raw<Channel | undefined>(lastChannel);
   let guide = $state<G.Programme[]>([]);
@@ -42,7 +44,8 @@
 
   // Show a few hundred rows at a time; "All channels" can run to thousands.
   let shown = $state(200);
-  $effect(() => { void channels; shown = 200; });
+  // A new category or filter starts at the top of its list.
+  $effect(() => { void channels; shown = 200; if (list) list.scrollTop = 0; });
 
   // ---- Programme guide: fetched as rows come into view ----
 
@@ -113,6 +116,12 @@
     clearInterval(clockTimer);
   });
 
+  /** A category, starting from its first channel on a TV (where the remote enters the list at the selected one). */
+  function pick(name: string) {
+    if (isTV && name !== category) { selected = undefined; stopPreview(); }
+    category = name;
+  }
+
   function onkeydown(e: KeyboardEvent) {
     if (app.player) return;
     const mod = e.metaKey;
@@ -121,6 +130,11 @@
       filterInput.focus();
       return;
     }
+    // On a TV, only keys meant for the channel list: not OK on a category or a button beside the
+    // preview, and not arrows the remote has already used to move focus (tv.ts).
+    const target = e.target as HTMLElement;
+    if (isTV && target !== document.body && !target.closest?.(".chlist")) return;
+    if (e.defaultPrevented) return;
     if (e.target instanceof HTMLInputElement && e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Enter") return;
     const i = selected ? channels.findIndex((c) => c.id === selected!.id) : -1;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -148,35 +162,39 @@
 <svelte:window {onkeydown} bind:innerWidth={width} />
 
 <div class="live">
-  <div class="col cats">
+  <div class="col cats" data-focus-column>
     <h2>Live TV</h2>
-    <button class="cat" class:sel={category === FAVOURITES} onclick={() => (category = FAVOURITES)}><span>{FAVOURITES}</span><span>{favourites.length}</span></button>
-    <button class="cat" class:sel={category === ALL} onclick={() => (category = ALL)}><span>{ALL}</span><span>{total.toLocaleString()}</span></button>
+    <button class="cat" class:sel={category === FAVOURITES} onclick={() => pick(FAVOURITES)}><span>{FAVOURITES}</span><span>{favourites.length}</span></button>
+    <button class="cat" class:sel={category === ALL} onclick={() => pick(ALL)}><span>{ALL}</span><span>{total.toLocaleString()}</span></button>
     {#each app.live ?? [] as g (g.name)}
-      <button class="cat" class:sel={category === g.name} onclick={() => (category = g.name)} title={g.name}><span>{g.name}</span><span>{g.items.length}</span></button>
+      <button class="cat" class:sel={category === g.name} onclick={() => pick(g.name)} title={g.name}><span>{g.name}</span><span>{g.items.length}</span></button>
     {/each}
   </div>
 
-  <div class="col chlist" bind:this={list}>
+  <div class="col chlist" data-focus-column bind:this={list} data-focus-enter=".ch.sel; .ch">
     <div class="filter"><label class="search-box"><span><Icon name="search" /></span><input bind:this={filterInput} bind:value={filter} placeholder="Filter {category === ALL ? 'all channels' : category}" spellcheck="false" />
       <kbd>⌘F</kbd></label></div>
     {#each channels.slice(0, shown) as c, i (c.id)}
       {@const fav = app.isFavourite("live", c.id)}
+      <!-- Live TV opens on the channel list (the selected channel, else the first), not on Watch. -->
       <div class="ch" class:sel={selected?.id === c.id} role="button" tabindex="0" use:visible={c}
-        onclick={() => (narrow ? watch(c) : preview(c))} ondblclick={() => watch(c)} onkeydown={(e) => e.key === "Enter" && watch(c)}>
+        data-autofocus={(selected ? selected.id === c.id : i === 0) || undefined}
+        onfocus={() => { if (isTV && selected?.id !== c.id) { selected = c; stopPreview(); } }}
+        onclick={() => (narrow || isTV ? watch(c) : preview(c))} ondblclick={() => watch(c)} onkeydown={(e) => e.key === "Enter" && !e.defaultPrevented && watch(c)}>
         <span class="num">{i + 1}</span>
         <span class="logo"><Art src={c.logo} title={c.name} fit="contain" /></span>
         <span class="nm">{c.name}<small>{names[c.id] ?? " "}</small></span>
-        <button class="star" class:on={fav} title={fav ? "Remove from favourites" : "Add to favourites"}
+        <!-- On a TV the ★ only shows; Favourite beside the preview changes it. -->
+        <button class="star" class:on={fav} tabindex={isTV ? -1 : undefined} title={fav ? "Remove from favourites" : "Add to favourites"}
           onclick={(e) => { e.stopPropagation(); app.toggleFavourite("live", c.id); }}>★</button>
       </div>
     {:else}
-      <div class="empty" style="padding:20px 10px">{category === FAVOURITES ? "Click ★ next to a channel to add it here." : filter ? "No channels match." : "No channels in this category."}</div>
+      <div class="empty" style="padding:20px 10px">{category === FAVOURITES ? (isTV ? "Choose ☆ Favourite beside a channel's preview to add it here." : "Click ★ next to a channel to add it here.") : filter ? "No channels match." : "No channels in this category."}</div>
     {/each}
     {#if shown < channels.length}<button class="btn small" style="margin:10px" onclick={() => (shown += 400)}>Show more ({(channels.length - shown).toLocaleString()} left)</button>{/if}
   </div>
 
-  <div class="col preview">
+  <div class="col preview" data-focus-column>
     {#if selected}
       <div class="mini" role="button" tabindex="-1" onclick={() => (miniOn ? watch(selected!) : preview(selected!))} ondblclick={() => watch(selected!)} onkeydown={() => {}}>
         {#if miniOn}
@@ -187,7 +205,7 @@
           {#if miniError}<div class="msg">{miniError}</div>{/if}
           <span class="expand"><Icon name="expand" /> Full screen · double-click or Enter</span>
         {:else}
-          <div class="msg"><span><b style="font-size:28px">▶</b><br />Click to preview · Enter for full screen</span></div>
+          <div class="msg"><span><b style="font-size:28px">▶</b><br />{isTV ? "OK to watch · ▶ to preview" : "Click to preview · Enter for full screen"}</span></div>
         {/if}
       </div>
       <h4>{number(selected) || ""}{number(selected) ? " · " : ""}{selected.name}</h4>
@@ -210,7 +228,7 @@
         {/each}
       </div>
     {:else}
-      <div class="empty" style="padding:30px 0">{isWebOS ? "Press OK on a channel to watch it. ▲ ▼ move through the list; CH + / − change channel while watching." : "Click a channel to preview it. Double-click, or press Enter, to watch full screen. ↑ ↓ move through the list."}</div>
+      <div class="empty" style="padding:30px 0">{isTV ? "Press OK on a channel to watch it. ▲ ▼ move through the list; CH + / − change channel while watching." : "Click a channel to preview it. Double-click, or press Enter, to watch full screen. ↑ ↓ move through the list."}</div>
     {/if}
   </div>
 </div>

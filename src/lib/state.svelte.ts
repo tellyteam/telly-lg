@@ -2,7 +2,8 @@ import * as backend from "./backend";
 import { syncIdentity, type Channel, type Group, type Provider, type Series, type SeriesData } from "./model";
 import * as P from "./playback";
 import * as repo from "./repo";
-import { offersPlus, plusReminderDue } from "./plus";
+import { mayHavePlus, offersPlus, plusReminderDue } from "./plus";
+import { markFocus, restoreFocus, type FocusMark } from "./tv";
 import { syncOnce, leave as leaveRelay, checkout as relayCheckout, onSale as relayOnSale, plus as relayPlus, PlusNeededError, SyncError, type PlusStatus } from "./sync/client";
 import { deriveKeys, hex, newCode, newDeviceId, normaliseCode, providerTag, randomBytes } from "./sync/crypto";
 import { apply as applySync, emptyLedger, seriesChanged, toParcel, type Ledger, type Local } from "./sync/local";
@@ -103,11 +104,17 @@ class App {
   plus = $state<PlusStatus | null>(null);
   /** telly Plus offered over Home: once after the first proper watch, or from Home's reminder. */
   plusOffer = $state(false);
+  /**
+   * A provider sent from a phone to the first run's QR code (with the link code sent with it, if
+   * any), on its way to Setup, which takes it. Only ever in memory: nothing is saved until Connect.
+   */
+  received = $state<{ provider: Provider; code?: string } | null>(null);
   /** Reactive for the record of watched titles it holds, which posters show. */
   private ledger = $state<Ledger>(emptyLedger());
 
   route = $state<Route>({ name: "home" });
-  private back: Route[] = [];
+  /** The trail Back follows, each with where focus was on that screen. */
+  private back: { route: Route; mark?: FocusMark }[] = [];
   player = $state<PlayRequest | null>(null);
 
   version = $state("");
@@ -405,14 +412,16 @@ class App {
     if (JSON.stringify(route) === JSON.stringify(this.route)) return;
     // Top-level sections start a fresh trail, like tabs.
     const top = ["home", "search", "live", "series", "films", "mylist", "settings"].includes(route.name);
-    this.back = top ? [] : [...this.back, this.route];
+    this.back = top ? [] : [...this.back, { route: this.route, mark: markFocus() }];
     this.route = route;
   }
 
+  /** Back a screen, with focus where it was there (on the See all card, say) rather than at the top. */
   goBack(): boolean {
     const prev = this.back.pop();
     if (!prev) return false;
-    this.route = prev;
+    this.route = prev.route;
+    if (prev.mark) restoreFocus(prev.mark);
     return true;
   }
 
@@ -506,8 +515,8 @@ class App {
     const p: P.Progress = [Math.round(Math.min(Math.max(pos, 0), dur)), Math.round(dur), Date.now()];
     this.progress[key] = p;
     this.write("progress", this.progress, 2000);
-    const film = P.finished(p) ? P.filmId(key) : null;
-    if (film) this.filmWatched(film);
+    const film = P.filmId(key);
+    if (film && P.finished(p, true)) this.filmWatched(film);
   }
 
   // ---- Watched titles ----
@@ -530,12 +539,16 @@ class App {
     this.syncSoon();
   }
 
-  /** Starts the record from films already watched; series follow from the episode check. */
+  /**
+   * Records films whose saved progress is watched but aren't in the record yet (on opening and after
+   * a sync): at first, and any left in their credits under an earlier rule. Series follow from the
+   * episode check.
+   */
   private seedWatched() {
     let changed = false;
     for (const [k, p] of Object.entries(this.progress)) {
-      const id = P.finished(p) ? P.filmId(k) : null;
-      if (!id || this.ledger.watched[favKey("film", id)]) continue;
+      const id = P.filmId(k);
+      if (!id || !P.finished(p, true) || this.ledger.watched[favKey("film", id)]) continue;
       this.ledger.watched[favKey("film", id)] = [p[2] ?? 0, true, ""];
       changed = true;
     }
@@ -550,8 +563,13 @@ class App {
   /** Continue watching follows once it has played long enough (the player calls [recordWatching]). */
   play(req: PlayRequest) {
     this.playerOpenedAt ??= Date.now();
+    // On a TV, closing the player puts focus back where it was (the episode), not the page's first button.
+    if (!this.player && backend.isTV) this.playerReturn = markFocus();
     this.player = req;
   }
+
+  /** Where focus was when the player opened. */
+  private playerReturn: FocusMark | undefined;
 
   /** When the player opened, for telly Plus's offer after the first proper watch. */
   private playerOpenedAt: number | null = null;
@@ -596,6 +614,9 @@ class App {
   /** Leaving the player saves progress, shares it, and looks for new episodes of anything finished. */
   closePlayer() {
     this.player = null;
+    const back = this.playerReturn;
+    this.playerReturn = undefined;
+    if (back) restoreFocus(back);
     backend.flushWrites();
     void this.syncNow().then(() => this.checkForNewEpisodes());
     const opened = this.playerOpenedAt;
@@ -610,6 +631,9 @@ class App {
    */
   private async offerPlusAfterWatch(watchedMs: number) {
     if (!offersPlus(watchedMs, this.syncShown, this.plus?.until != null, !!this.meta.plusOfferedAt)) return;
+    // A linked household's telly Plus may not be known yet: ask now, before offering it.
+    if (this.sync) await this.refreshPlus();
+    if (mayHavePlus(!!this.sync, this.plus)) return;
     const onSale = this.plus?.onSale ?? (await relayOnSale(backend.syncTransport, RELAY));
     if (!onSale || this.meta.plusOfferedAt) return;
     this.meta.plusOfferedAt = Date.now();
@@ -619,7 +643,7 @@ class App {
 
   /** Home's one reminder of telly Plus, a few days after it was first offered. */
   get plusReminder() {
-    return plusReminderDue(Date.now(), this.meta.plusOfferedAt, !!this.meta.plusReminderClosed, this.syncShown, this.plus?.until != null);
+    return plusReminderDue(Date.now(), this.meta.plusOfferedAt, !!this.meta.plusReminderClosed, this.syncShown, mayHavePlus(!!this.sync, this.plus));
   }
 
   closePlusReminder() {
@@ -732,9 +756,9 @@ class App {
 
   // ---- Sync ----
 
-  /** Settings → Sync shows unless hidden (seven presses on the version), and always while linked. */
+  /** Sync is hidden until unlocked (seven presses on the version in Settings), and always shows while linked. */
   get syncShown() {
-    return this.meta.syncUnlocked !== false || !!this.sync;
+    return this.meta.syncUnlocked === true || !!this.sync;
   }
 
   /** Shows or hides Settings → Sync; returns whether it's now shown. Hiding never unlinks. */

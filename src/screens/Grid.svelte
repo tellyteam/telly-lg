@@ -30,15 +30,17 @@
     <label class="search-box"><span><Icon name="search" /></span><input bind:value={filter} placeholder="Filter {group}" spellcheck="false" /></label>
   </TopBar>
   <div class="page-head"><h2>{group}</h2><span class="sub">{items.length.toLocaleString()} {kind}</span></div>
-  <div class="chips">
-    <button class="chip" class:sel={sort === "provider"} onclick={() => (sort = "provider")}>Provider order</button>
-    <button class="chip" class:sel={sort === "az"} onclick={() => (sort = "az")}>A–Z</button>
-    {#if all.some((i) => i.added)}<button class="chip" class:sel={sort === "new"} onclick={() => (sort = "new")}>Newest</button>{/if}
+  <div class="track-clip">
+    <div class="chips">
+      <button class="chip" class:sel={sort === "provider"} onclick={() => (sort = "provider")}>Provider order</button>
+      <button class="chip" class:sel={sort === "az"} onclick={() => (sort = "az")}>A–Z</button>
+      {#if all.some((i) => i.added)}<button class="chip" class:sel={sort === "new"} onclick={() => (sort = "new")}>Newest</button>{/if}
+    </div>
   </div>
   <LazyGrid {items}>
     {#snippet cell(item: Channel | Series)}
       <Card title={item.name} image={"cover" in item ? item.cover : (item as Channel).logo}
-        fav={{ kind: kind === "films" ? "film" : "series", id: item.id }} onclick={() => open(item)} />
+        fav={{ kind: kind === "films" ? "film" : "series", id: item.id }} autofocus={item === items[0]} onclick={() => open(item)} />
     {/snippet}
   </LazyGrid>
 </div>

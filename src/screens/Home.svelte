@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import Art from "../components/Art.svelte";
   import Card from "../components/Card.svelte";
   import Row from "../components/Row.svelte";
@@ -7,6 +8,7 @@
   import * as P from "../lib/playback";
   import { app } from "../lib/state.svelte";
   import { playChannel, playFilm } from "../lib/actions";
+  import { focus } from "../lib/tv";
 
   // Something still to watch: a finished film or series never leads Home (PLAYBACK.md).
   const continuing = $derived(app.history.filter((h) => P.inContinue(h, app.progressOf)));
@@ -34,6 +36,41 @@
     app.closePlusReminder();
   }
 
+  // ---- Taking titles off a row with the remote (TVs) ----
+  // The ✕ on a card is for a mouse; a remote can't reach it. Each row that allows it ends in Remove…,
+  // which puts the row in Remove mode: OK on a card takes it off, Done or Back finishes. Only arrows,
+  // OK and Back, so it works the same on every TV's remote.
+  type Removable = "continue" | "list" | "channels";
+  let removing = $state<Removable | null>(null);
+  const toggleRemoving = (row: Removable) => (removing = removing === row ? null : row);
+
+  /** Takes the focused card off, and moves focus to the card that takes its place (or Done). */
+  async function removeFocused(remove: () => void) {
+    const card = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>(".card");
+    const sibling = (el: Element | null | undefined) => el instanceof HTMLElement && el.classList.contains("card") ? el : undefined;
+    const after = sibling(card?.nextElementSibling), before = sibling(card?.previousElementSibling);
+    const next = after && !after.classList.contains("remove-tile") ? after : before ?? after;
+    remove();
+    await tick();
+    if (next && document.contains(next)) focus(next);
+  }
+
+  // A row emptied: Remove mode ends with it.
+  $effect(() => {
+    if (removing === "continue" && !continuing.length) removing = null;
+    if (removing === "list" && !favs.series.length && !favs.films.length) removing = null;
+    if (removing === "channels" && !favs.live.length) removing = null;
+  });
+
+  /** Back finishes Remove mode before it does anything else. */
+  function onkeydowncapture(e: KeyboardEvent) {
+    if (removing && e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      removing = null;
+    }
+  }
+
   function badge(h: P.LastWatched) {
     if (h.live) return "Live";
     if (P.isFilm(h)) return "Film";
@@ -45,6 +82,8 @@
   }
 </script>
 
+<svelte:window {onkeydowncapture} />
+
 <div class="screen">
   <TopBar />
   {#if pick && pickItem}
@@ -55,11 +94,11 @@
         <div class="eyebrow">{pick.live ? "Last watched" : pick.newEpisodes ? "New episodes" : nextUp ? "Up next" : "Continue watching"}</div>
         <div class="title-xl">{pick.live || P.isFilm(pick) ? pickItem.name : pick.heading}</div>
         <div class="meta"><span>{pick.live ? "Live TV" : P.isFilm(pick) ? "Film" : `${pickItem.group} · ${pickItem.name}`}</span></div>
-        {#if pickProgress && !pick.live && !P.finished(pickProgress)}
+        {#if pickProgress && !pick.live && !P.finished(pickProgress, P.isFilmUrl(pickItem.url))}
           <div class="hero-progress"><div class="progress"><i style:width="{P.fraction(pickProgress) * 100}%"></i></div></div>
         {/if}
         <div class="btns">
-          <button class="btn primary" onclick={() => app.resume(pick)}>▶ {pick.live ? "Watch" : pickProgress && P.resumePosition(pickProgress) ? "Resume" : "Play"}</button>
+          <button class="btn primary" onclick={() => app.resume(pick)}>▶ {pick.live ? "Watch" : pickProgress && P.resumePosition(pickProgress, P.isFilmUrl(pickItem.url)) ? "Resume" : "Play"}</button>
           {#if pickSeries}<button class="btn" onclick={() => openSeries(pickSeries)}>Episodes</button>{/if}
         </div>
       </div>
@@ -90,25 +129,29 @@
   {/if}
 
   {#if continuing.length}
-    <Row title="Continue watching">
+    <Row title="Continue watching" variant="landscape" removing={removing === "continue"} onRemoving={() => toggleRemoving("continue")}>
       {#each continuing.slice(0, 20) as h (P.slot(h))}
         {@const item = h.items[P.continueIndex(h, app.progressOf)]}
         {@const p = app.progressOf(item.url)}
         <Card variant="landscape" title={h.live ? item.name : P.isFilm(h) ? item.name : h.heading} image={h.art ?? item.logo}
-          badge={badge(h)} progress={!h.live && p ? P.fraction(p) : undefined} playable onclick={() => app.resume(h)}
+          badge={badge(h)} progress={!h.live && p ? P.fraction(p) : undefined} playable={removing !== "continue"} removing={removing === "continue"}
+          onclick={() => (removing === "continue" ? removeFocused(() => app.removeFromHistory(h)) : app.resume(h))}
           onremove={() => app.removeFromHistory(h)} />
       {/each}
     </Row>
   {/if}
   {#if favs.series.length || favs.films.length}
-    <Row title="My List" onSeeAll={() => app.go({ name: "mylist" })}>
-      {#each favs.series as s (s.id)}<Card title={s.name} image={s.cover} fav={{ kind: "series", id: s.id }} dimmed onclick={() => openSeries(s)} />{/each}
-      {#each favs.films as f (f.id)}<Card title={f.name} image={f.logo} fav={{ kind: "film", id: f.id }} dimmed onclick={() => openFilm(f)} />{/each}
+    <Row title="My List" onSeeAll={() => app.go({ name: "mylist" })} removing={removing === "list"} onRemoving={() => toggleRemoving("list")}>
+      {#each favs.series as s (s.id)}<Card title={s.name} image={s.cover} fav={{ kind: "series", id: s.id }} dimmed removing={removing === "list"}
+        onclick={() => (removing === "list" ? removeFocused(() => app.toggleFavourite("series", s.id)) : openSeries(s))} />{/each}
+      {#each favs.films as f (f.id)}<Card title={f.name} image={f.logo} fav={{ kind: "film", id: f.id }} dimmed removing={removing === "list"}
+        onclick={() => (removing === "list" ? removeFocused(() => app.toggleFavourite("film", f.id)) : openFilm(f))} />{/each}
     </Row>
   {/if}
   {#if favs.live.length}
-    <Row title="Favourite channels">
-      {#each favs.live as c (c.id)}<Card variant="chan" title={c.name} image={c.logo} playable onclick={() => playChannel(c, favs.live)} />{/each}
+    <Row title="Favourite channels" variant="chan" removing={removing === "channels"} onRemoving={() => toggleRemoving("channels")}>
+      {#each favs.live as c (c.id)}<Card variant="chan" title={c.name} image={c.logo} playable={removing !== "channels"} removing={removing === "channels"}
+        onclick={() => (removing === "channels" ? removeFocused(() => app.toggleFavourite("live", c.id)) : playChannel(c, favs.live))} />{/each}
     </Row>
   {/if}
   {#if newFilms.length}

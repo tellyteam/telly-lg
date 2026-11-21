@@ -1,3 +1,5 @@
+import type { PlusStatus } from "./sync/client";
+
 /** telly Plus on a TV: when it's offered, and what Settings → Sync and the offer share. The same rules as on Fire TV. */
 
 /** How long a first watch is before leaving the player offers telly Plus. In development: VITE_TELLY_FIRST_WATCH (seconds). */
@@ -6,6 +8,12 @@ export const FIRST_WATCH_MS = ((import.meta.env.DEV && Number(import.meta.env.VI
 /** Whether leaving the player after [watchedMs] offers telly Plus. */
 export const offersPlus = (watchedMs: number, syncShown: boolean, hasPlus: boolean, offeredBefore: boolean) =>
   watchedMs >= FIRST_WATCH_MS && syncShown && !hasPlus && !offeredBefore;
+
+/**
+ * Whether this device may already have telly Plus, so it isn't offered: a linked household has it
+ * unless the relay has said otherwise. Not knowing yet (just started, relay out of reach) isn't "no".
+ */
+export const mayHavePlus = (linked: boolean, plus: PlusStatus | null) => linked && (plus == null || plus.until != null);
 
 /** Days after telly Plus was first offered that Home shows its one reminder. */
 export const PLUS_REMINDER_DAYS = 3;
