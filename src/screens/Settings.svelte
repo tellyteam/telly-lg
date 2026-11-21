@@ -3,7 +3,8 @@
   import TopBar from "../components/TopBar.svelte";
   import { isTV, syncTransport } from "../lib/backend";
   import { ago, app, RELAY } from "../lib/state.svelte";
-  import { collectJoin, joinLink, newJoin } from "../lib/sync/join";
+  import { collectJoin, joinLink, newJoin, type JoinMessage } from "../lib/sync/join";
+  import { syncIdentity } from "../lib/model";
   import { formatCode } from "../lib/sync/crypto";
   import { syncLink } from "../lib/sync/link";
   import { dayText } from "../lib/plus";
@@ -38,11 +39,26 @@
   }
 
   /**
-   * Scan to link: the first run's join QR code, here too, for a device already set up. telly on an
-   * iPhone or iPad in the household scans it (Settings → Set up a TV) and leaves its link code in the
-   * relay's join box, sealed so only this device can read it; this device links with it. A provider
-   * sent with the code isn't used here: providers are added under Provider above.
+   * Scan to link: the first run's join QR code, here too, for a device already set up. telly on a
+   * phone or tablet in the household scans it (Settings → Set up a TV) and leaves what it sends in the
+   * relay's join box, sealed so only this device can read it. Like every QR code telly shows, it takes
+   * whatever comes: a link code links; a provider this device doesn't have goes to Add provider,
+   * filled in to check (which links with the code first, if one came too); one it has already is
+   * left alone.
    */
+  async function received(m: JoinMessage) {
+    const isNew = m.provider && !app.providers.some((s) => syncIdentity(s.provider) === syncIdentity(m.provider!));
+    if (isNew) {
+      scanning = false;
+      app.received = { provider: m.provider!, code: m.code };
+      app.go({ name: "setup", adding: true });
+    } else if (m.code) {
+      scanning = false;
+      await link(m.code);
+    } else {
+      syncError = `This ${isTV ? "TV" : "browser"} already has that provider. To link it, send it from a phone with telly Plus.`;
+    }
+  }
   let scanning = $state(false);
   let scanJoin = $state(newJoin());
   let scanTimer: ReturnType<typeof setInterval> | undefined;
@@ -59,13 +75,8 @@
         const found = await collectJoin(syncTransport, RELAY, current);
         if (!found) return;
         clearInterval(scanTimer);
-        if (found.code) {
-          scanning = false;
-          await link(found.code);
-        } else {
-          syncError = "That sent a provider, not a link. To add a provider, use Add another provider above.";
-        }
         scanJoin = newJoin();
+        await received(found);
       } catch (e) {
         syncError = (e as Error).message;
         scanJoin = newJoin();
@@ -144,8 +155,8 @@
             {#if app.sync}<button class="btn small" onclick={() => { joining = false; scanning = false; app.stopSync(); }}>Unlink this {isTV ? "TV" : "browser"}</button>{/if}</div></div>
         {#if scanning}
           <div class="line sync-link"><QrCode text={joinLink(scanJoin)} size={150} label="QR code to link this {isTV ? 'TV' : 'browser'} from your phone" />
-            <div><b>Scan with telly on your iPhone or iPad</b>
-              <small>In telly on it, go to Settings → Set up a TV and scan this. It links this {isTV ? "TV" : "browser"} to your household's telly Plus, with nothing to type. {linking ? "Linking…" : "Waiting for your phone…"}</small></div></div>
+            <div><b>Scan with telly on your phone or tablet</b>
+              <small>In telly on it, go to Settings → Set up a TV and scan this. It links this {isTV ? "TV" : "browser"} to your household's telly Plus, and can send a provider it doesn't have yet, with nothing to type. {linking ? "Linking…" : "Waiting for your phone…"}</small></div></div>
         {/if}
         {#if joining}
           <div class="line"><div class="field" style="flex:1"><input placeholder="ABCD-EFGH-JKMN-PQRS" bind:value={joinCode} maxlength="19" spellcheck="false" autocomplete="off" /><small class="hint">The code from Settings → Sync on one of your other devices.</small></div>
