@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import TopBar from "../components/TopBar.svelte";
-  import { isTV } from "../lib/backend";
-  import { ago, app } from "../lib/state.svelte";
+  import { isTV, syncTransport } from "../lib/backend";
+  import { ago, app, RELAY } from "../lib/state.svelte";
+  import { collectJoin, joinLink, newJoin } from "../lib/sync/join";
   import { formatCode } from "../lib/sync/crypto";
   import { syncLink } from "../lib/sync/link";
   import { dayText } from "../lib/plus";
@@ -34,6 +36,44 @@
       linking = false;
     }
   }
+
+  /**
+   * Scan to link: the first run's join QR code, here too, for a device already set up. telly on an
+   * iPhone or iPad in the household scans it (Settings → Set up a TV) and leaves its link code in the
+   * relay's join box, sealed so only this device can read it; this device links with it. A provider
+   * sent with the code isn't used here: providers are added under Provider above.
+   */
+  let scanning = $state(false);
+  let scanJoin = $state(newJoin());
+  let scanTimer: ReturnType<typeof setInterval> | undefined;
+  $effect(() => {
+    clearInterval(scanTimer);
+    if (!scanning) return;
+    const current = scanJoin;
+    let asks = 0;
+    // Asked every 3 seconds; one code is kept for 9 minutes, inside the box's 10.
+    scanTimer = setInterval(async () => {
+      if (linking) return;
+      if (++asks > 180) { scanJoin = newJoin(); return; }
+      try {
+        const found = await collectJoin(syncTransport, RELAY, current);
+        if (!found) return;
+        clearInterval(scanTimer);
+        if (found.code) {
+          scanning = false;
+          await link(found.code);
+        } else {
+          syncError = "That sent a provider, not a link. To add a provider, use Add another provider above.";
+        }
+        scanJoin = newJoin();
+      } catch (e) {
+        syncError = (e as Error).message;
+        scanJoin = newJoin();
+      }
+    }, 3000);
+    if (import.meta.env.DEV) console.info("settings join QR:", encodeURIComponent(joinLink(current)));
+  });
+  onDestroy(() => clearInterval(scanTimer));
 
   // Seven clicks on the version in a row show (or hide) the Sync section.
   let versionClicks = 0;
@@ -99,8 +139,14 @@
         <div class="line"><div>{app.sync ? "Sync is off: this household's telly Plus has run out" : "Pick up where you left off on your other devices"}<small>{app.sync ? "" : "Shares progress, Continue watching and My List, end-to-end encrypted. Provider logins are never part of sync, and the relay keeps no logs. "}Sync is part of telly Plus: free for 3 days, then £4.99 a year, for every device in your household.</small></div></div>
         <PlusPanel />
         <div class="line"><div></div>
-          <div class="btns"><button class="btn small" disabled={linking} onclick={() => (joining = !joining)}>I already have telly Plus</button>
-            {#if app.sync}<button class="btn small" onclick={() => { joining = false; app.stopSync(); }}>Unlink this {isTV ? "TV" : "browser"}</button>{/if}</div></div>
+          <div class="btns"><button class="btn small" disabled={linking} onclick={() => { scanning = !scanning; joining = false; syncError = null; }}>{scanning ? "Hide QR code" : "Scan to link"}</button>
+            <button class="btn small" disabled={linking} onclick={() => { joining = !joining; scanning = false; }}>I already have telly Plus</button>
+            {#if app.sync}<button class="btn small" onclick={() => { joining = false; scanning = false; app.stopSync(); }}>Unlink this {isTV ? "TV" : "browser"}</button>{/if}</div></div>
+        {#if scanning}
+          <div class="line sync-link"><QrCode text={joinLink(scanJoin)} size={150} label="QR code to link this {isTV ? 'TV' : 'browser'} from your phone" />
+            <div><b>Scan with telly on your iPhone or iPad</b>
+              <small>In telly on it, go to Settings → Set up a TV and scan this. It links this {isTV ? "TV" : "browser"} to your household's telly Plus, with nothing to type. {linking ? "Linking…" : "Waiting for your phone…"}</small></div></div>
+        {/if}
         {#if joining}
           <div class="line"><div class="field" style="flex:1"><input placeholder="ABCD-EFGH-JKMN-PQRS" bind:value={joinCode} maxlength="19" spellcheck="false" autocomplete="off" /><small class="hint">The code from Settings → Sync on one of your other devices.</small></div>
             <button class="btn small primary" disabled={linking || !joinCode.trim()} onclick={() => link(joinCode)}>{linking ? "Linking…" : "Link"}</button></div>
