@@ -86,6 +86,33 @@ command waits forever and prints nothing, and sdb's kill commands don't close it
 A TV woken from standby (or by Wake-on-LAN, when the TV's **Power On with Mobile** is on) takes
 about 10 seconds before `sdb connect` works.
 
+### A longer test on the Samsung
+
+`scripts/tv-soak.mjs` runs telly on the TV for an hour (or `--minutes`) and writes a report folder.
+It covers:
+
+- cold starts
+- this speed test three times, so a slowdown over the session shows up
+- every screen with random remote presses (focus lost or off screen, Back to the same poster, text
+  contrast)
+- live TV (channel changes with CH + and CH −), a film and an episode: start time, stalls, seeking,
+  tracks, pause and resume
+- a loop round the app that watches memory
+
+It launches telly itself (reinstalling `build-tizen`'s `.wgt` when `debug` hangs) and closes it at
+the end:
+
+```bash
+node scripts/tv-soak.mjs --tv TV_IP --minutes 60 --mac TV_MAC
+```
+
+`--mac` wakes the TV with Wake-on-LAN if it's in standby. `--phases "live TV,film"` runs just
+those. The script's opening comment lists the rest. It plays with sound, and what it watches
+appears in Continue watching.
+
+The inspector can't see live TV's picture: Samsung's own player shows MPEG-TS channels outside the
+page, where its time stays at 0. Whether a channel shows a picture is for a person to check.
+
 ### On the LG
 
 ```bash
