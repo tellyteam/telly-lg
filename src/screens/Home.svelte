@@ -20,8 +20,8 @@
   const nextUp = $derived(!!pick && pickIndex !== pick.index);
 
   const favs = $derived(app.favouriteItems());
-  const newFilms = $derived(app.recentlyAdded(app.films));
-  const newSeries = $derived(app.recentlyAdded(app.series));
+  const newFilms = $derived(app.recentlyAdded(app.shownFilms));
+  const newSeries = $derived(app.recentlyAdded(app.shownSeries));
   // Nothing to pick up yet: the billboard features the newest film, as on the Fire TV app.
   const featured = $derived(newFilms[0]);
 

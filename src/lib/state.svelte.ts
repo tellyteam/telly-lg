@@ -4,6 +4,7 @@ import * as P from "./playback";
 import * as repo from "./repo";
 import { mayHavePlus, offersPlus, plusReminderDue } from "./plus";
 import { reminderDue } from "./account";
+import { arrange, noPrefs, toggleHidden, togglePinned, type Arrangement, type CategoryKind, type CategoryPrefs } from "./categories";
 import type { Account } from "./xtream";
 import { markFocus, restoreFocus, type FocusMark } from "./tv";
 import { syncOnce, leave as leaveRelay, checkout as relayCheckout, onSale as relayOnSale, plus as relayPlus, PlusNeededError, SyncError, type PlusStatus } from "./sync/client";
@@ -103,6 +104,8 @@ class App {
   meta = $state<Meta>({});
   /** The subscription's end date and connections, shown in Settings (Xtream providers only). */
   account = $state<{ details?: Account; error?: string } | null>(null);
+  /** How this provider's categories are arranged: some pinned to the top, some hidden. */
+  categories = $state<Arrangement>({});
   /** A short message over whatever is showing, such as the subscription ending soon. */
   notice = $state<string | null>(null);
   private noticeTimer?: ReturnType<typeof setTimeout>;
@@ -236,6 +239,7 @@ class App {
     this.progress = r.progress;
     this.history = r.history;
     this.ledger = r.ledger;
+    this.categories = (await backend.storeRead<Arrangement>(`categories-${saved.id}`)) ?? {};
     this.activeId = saved.id;
     this.seedWatched();
     this.meta.activeProvider = saved.id;
@@ -427,6 +431,7 @@ class App {
     await this.saveProviders(this.providers.filter((p) => p.id !== id));
     // Its history holds stream URLs, which carry the login.
     for (const name of RECORDS) await backend.storeDelete(recordName(name, id));
+    await backend.storeDelete(`categories-${id}`);
     void repo.clearSavedCataloguesFor(gone.provider);
     if (id !== this.activeId) return;
     this.back = [];
@@ -440,6 +445,7 @@ class App {
     this.progress = {};
     this.history = [];
     this.ledger = emptyLedger();
+    this.categories = {};
     this.activeId = null;
     this.meta.activeProvider = undefined;
     backend.storeWrite("meta", this.meta, 0);
@@ -495,15 +501,39 @@ class App {
   film = (id: string) => this.filmById.get(id);
   seriesItem = (id: string) => this.seriesById.get(id);
 
+  // ---- Categories ----
+
+  /** Live TV, films and series as the user arranged them: pinned first, hidden ones left out. */
+  get shownLive() { return this.live && arrange(this.live, this.categories.live); }
+  get shownFilms() { return this.films && arrange(this.films, this.categories.films); }
+  get shownSeries() { return this.series && arrange(this.series, this.categories.series); }
+
+  /** All of a kind's categories, in the provider's order, for arranging them. */
+  allCategories(kind: CategoryKind): Group<Channel | Series>[] {
+    return (kind === "live" ? this.live : kind === "films" ? this.films : this.series) ?? [];
+  }
+
+  togglePinned(kind: CategoryKind, name: string) { this.arrangeCategories(kind, togglePinned(this.categories[kind] ?? noPrefs(), name)); }
+  toggleHidden(kind: CategoryKind, name: string) { this.arrangeCategories(kind, toggleHidden(this.categories[kind] ?? noPrefs(), name)); }
+  resetCategories(kind: CategoryKind) { this.arrangeCategories(kind, noPrefs()); }
+
+  private arrangeCategories(kind: CategoryKind, prefs: CategoryPrefs) {
+    if (!this.activeId) return;
+    this.categories = { ...this.categories, [kind]: prefs };
+    this.searchIndex = undefined;
+    backend.storeWrite(`categories-${this.activeId}`, this.categories, 0);
+  }
+
   private searchIndex?: { live: [string, Channel][]; films: [string, Channel][]; series: [string, Series][] };
 
   search(query: string, limit = 40) {
     const q = normalise(query.trim());
     if (!q) return { live: [], films: [], series: [] };
+    // Hidden categories stay out of Search too, as on Fire TV.
     this.searchIndex ??= {
-      live: (this.live ?? []).flatMap((g) => g.items).map((c) => [normalise(c.name), c]),
-      films: (this.films ?? []).flatMap((g) => g.items).map((c) => [normalise(c.name), c]),
-      series: (this.series ?? []).flatMap((g) => g.items).map((s) => [normalise(s.name), s]),
+      live: (this.shownLive ?? []).flatMap((g) => g.items).map((c) => [normalise(c.name), c]),
+      films: (this.shownFilms ?? []).flatMap((g) => g.items).map((c) => [normalise(c.name), c]),
+      series: (this.shownSeries ?? []).flatMap((g) => g.items).map((s) => [normalise(s.name), s]),
     };
     const find = <T>(list: [string, T][]) => {
       // Names that start with the query first, then any that contain it.

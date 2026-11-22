@@ -12,6 +12,11 @@
   import QrCode from "../components/QrCode.svelte";
   import PlainHttpSwitch from "../components/PlainHttpSwitch.svelte";
   import PlusPanel from "../components/PlusPanel.svelte";
+  import CategoryManager from "../components/CategoryManager.svelte";
+  import { arrangementText, CATEGORY_KINDS, type CategoryKind } from "../lib/categories";
+
+  /** The kind of category being arranged, which takes over the page until Done. */
+  let managing = $state<CategoryKind | null>(null);
 
   let confirmRemove = $state(false);
   let clearing = $state(false);
@@ -110,6 +115,9 @@
   <TopBar search={false} />
   <div class="page-head" style="padding-bottom:14px"><h2>Settings</h2></div>
   <div class="settings">
+    {#if managing}
+    <CategoryManager kind={managing} onDone={() => (managing = null)} />
+    {:else}
     <div class="panel"><h4>{app.providers.length > 1 ? "Providers" : "Provider"}</h4>
       {#each app.providers as saved (saved.id)}
         {@const inUse = saved.id === app.activeId}
@@ -135,6 +143,12 @@
       {:else}
       <div class="line"><div>Remote<small>OK play or pause · ◀ ▶ 10 seconds · CH + / − change channel · Back to leave</small></div></div>
       {/if}
+    </div>
+    <div class="panel"><h4>Categories</h4>
+      <div class="line"><div><small>Pin the categories you use most to the top, and hide the ones you never watch. Hidden categories also stay out of Home and Search.</small></div>
+        <div class="btns">{#each CATEGORY_KINDS.filter((k) => app.allCategories(k.kind).length) as k (k.kind)}
+          {@const extra = arrangementText(app.categories[k.kind])}
+          <button class="btn small" onclick={() => (managing = k.kind)}>{extra ? `${k.label} · ${extra}` : k.label}</button>{/each}</div></div>
     </div>
     {#if app.syncShown}
     <div class="panel"><h4>Sync</h4>
@@ -186,6 +200,7 @@
         {#if confirmClearProgress}<div class="btns"><button class="btn small" onclick={() => { app.clearProgress(); confirmClearProgress = false; }}>Clear it all</button><button class="btn small" onclick={() => (confirmClearProgress = false)}>Cancel</button></div>
         {:else}<button class="btn small" onclick={() => (confirmClearProgress = true)}>Clear</button>{/if}</div>
     </div>
+    {/if}
     <p class="hint">telly is free for personal use (PolyForm Noncommercial licence). It talks only to your provider, and to telly's relay while a setup QR code shows{app.syncShown ? " or if you turn on sync" : ""}. No accounts, analytics or tracking.</p>
   </div>
 </div>

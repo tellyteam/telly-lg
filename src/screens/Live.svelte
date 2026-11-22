@@ -19,7 +19,7 @@
   const lastChannel = last ? last.items[last.index] : undefined;
 
   let category = $state(app.favouriteItems().live.length ? FAVOURITES
-    : lastChannel && app.live?.some((g) => g.name === lastChannel.group) ? lastChannel.group : app.live?.[0]?.name ?? ALL);
+    : lastChannel && app.shownLive?.some((g) => g.name === lastChannel.group) ? lastChannel.group : app.shownLive?.[0]?.name ?? ALL);
   let filter = $state("");
   let selected = $state.raw<Channel | undefined>(lastChannel);
   let guide = $state<G.Programme[]>([]);
@@ -34,12 +34,12 @@
   const favourites = $derived(app.favouriteItems().live);
   const channels = $derived.by(() => {
     const base = category === FAVOURITES ? favourites
-      : category === ALL ? (app.live ?? []).flatMap((g) => g.items)
-      : app.live?.find((g) => g.name === category)?.items ?? [];
+      : category === ALL ? (app.shownLive ?? []).flatMap((g) => g.items)
+      : app.shownLive?.find((g) => g.name === category)?.items ?? [];
     const q = filter.trim().toLowerCase();
     return q ? base.filter((c) => c.name.toLowerCase().includes(q)) : base;
   });
-  const total = $derived((app.live ?? []).reduce((n, g) => n + g.items.length, 0));
+  const total = $derived((app.shownLive ?? []).reduce((n, g) => n + g.items.length, 0));
   const nn = $derived(G.nowNext(guide, now));
 
   // Show a few hundred rows at a time; "All channels" can run to thousands.
@@ -172,7 +172,7 @@
     <h2>Live TV</h2>
     <button class="cat" class:sel={category === FAVOURITES} onclick={() => pick(FAVOURITES)}><span>{FAVOURITES}</span><span>{favourites.length}</span></button>
     <button class="cat" class:sel={category === ALL} onclick={() => pick(ALL)}><span>{ALL}</span><span>{total.toLocaleString()}</span></button>
-    {#each app.live ?? [] as g (g.name)}
+    {#each app.shownLive ?? [] as g (g.name)}
       <button class="cat" class:sel={category === g.name} onclick={() => pick(g.name)} title={g.name}><span>{g.name}</span><span>{g.items.length}</span></button>
     {/each}
   </div>

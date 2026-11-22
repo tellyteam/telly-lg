@@ -10,7 +10,7 @@
   /** Films or Series: category chips, then a row per category (rendered as you scroll). */
   let { kind }: { kind: "films" | "series" } = $props();
 
-  const groups = $derived((kind === "films" ? app.films : app.series) as Group<Channel | Series>[] | null);
+  const groups = $derived((kind === "films" ? app.shownFilms : app.shownSeries) as Group<Channel | Series>[] | null);
   const total = $derived(groups?.reduce((n, g) => n + g.items.length, 0) ?? 0);
   const ROW = 24;
 
