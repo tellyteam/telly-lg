@@ -148,9 +148,14 @@ class App {
     // closed, to link the household now.
     void this.refreshPlus();
     void backend.storeDelete("login-ledger");
-    window.addEventListener("focus", () => {
-      if (!this.player && Date.now() - (this.syncStatus.at ?? 0) > SYNC_GAP_MS) void this.syncNow();
-    });
+    // Back in front: other devices' changes, if it's been a while. A TV never sends `focus` (telly
+    // is always the focused window), only `visibilitychange` when another app or Home goes away.
+    const backInFront = () => {
+      if (document.hidden || this.player) return;
+      if (Date.now() - (this.syncStatus.at ?? 0) > SYNC_GAP_MS) void this.syncNow();
+    };
+    window.addEventListener("focus", backInFront);
+    document.addEventListener("visibilitychange", backInFront);
 
     this.providers = await this.loadProviders();
     const active = this.providers.find((p) => p.id === this.meta.activeProvider) ?? this.providers[0];
@@ -315,7 +320,9 @@ class App {
       backend.storeWrite("meta", this.meta);
     }
     this.refreshing = false;
-    void this.checkForNewEpisodes();
+    // Again, now the lists are here: a sync before them (a new provider, or one linked from a phone)
+    // couldn't place the other devices' Continue watching, and left it out.
+    void this.syncNow().then(() => this.checkForNewEpisodes());
   }
 
   // ---- Provider ----
@@ -604,7 +611,9 @@ class App {
   clearProgress() {
     this.progress = {};
     this.history = [];
-    this.ledger = { ...this.ledger, removed: {}, watched: {}, cleared: Date.now() };
+    // Only a linked device records when: that's what clears the other devices. Cleared before
+    // linking, it's this device's alone, and linking later mustn't empty everyone's Continue watching.
+    this.ledger = { ...this.ledger, removed: {}, watched: {}, cleared: this.sync ? Date.now() : this.ledger.cleared };
     this.write("progress", this.progress, 0);
     this.write("history", this.history, 0);
     this.saveLedger();
@@ -773,6 +782,7 @@ class App {
     const normal = code === undefined ? newCode() : normaliseCode(code);
     if (!normal) throw new SyncError("That code isn't right: it's 16 letters and numbers, like ABCD-EFGH-JKMN-PQRS.");
     const config: SyncConfig = { code: normal, device: this.sync?.device ?? newDeviceId(), relay: RELAY };
+    await this.forgetUnlinkedClears();
     await backend.secretSet("sync", JSON.stringify(config));
     this.sync = config;
     this.plus = null;
@@ -830,6 +840,7 @@ class App {
       return;
     }
     if (plus.until == null || this.sync) return;
+    await this.forgetUnlinkedClears();
     await backend.secretSet("sync", JSON.stringify(pending));
     await backend.secretDelete("sync-pending").catch(() => {});
     this.sync = pending;
@@ -850,6 +861,23 @@ class App {
     this.sync = null;
     this.plus = null;
     this.syncStatus = { busy: false };
+  }
+
+  /**
+   * About to link: a clear made before (or in another household) was this device's own, so it's
+   * forgotten rather than shared, which would empty every linked device's Continue watching.
+   */
+  private async forgetUnlinkedClears() {
+    for (const saved of this.providers) {
+      if (saved.id === this.activeId) {
+        if (!this.ledger.cleared) continue;
+        this.ledger = { ...this.ledger, cleared: 0 };
+        this.saveLedger();
+        continue;
+      }
+      const r = await this.readRecords(saved.id);
+      if (r.ledger.cleared) this.writeRecords(saved.id, { ...r, ledger: { ...r.ledger, cleared: 0 } });
+    }
   }
 
   private syncTimer?: ReturnType<typeof setTimeout>;
