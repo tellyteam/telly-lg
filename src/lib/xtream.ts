@@ -63,10 +63,23 @@ function prefix(server: URL, kind: string, username: string, password: string): 
 
 // ---- Account ----
 
+/** A whole number at least [min], from a number or a string; undefined otherwise. */
+function whole(v: unknown, min: number): number | undefined {
+  const t = str(v)?.trim();
+  if (!t || !/^-?\d+$/.test(t)) return undefined;
+  const n = Number(t);
+  return n >= min ? n : undefined;
+}
+
 export interface Account {
   authenticated: boolean;
   status?: string;
   outputFormats: string[];
+  /** When the subscription ends (ms since 1970); missing when the provider gives no end date. */
+  expiresAt?: number;
+  maxConnections?: number;
+  activeConnections?: number;
+  trial?: boolean;
 }
 
 export function account(root: Json): Account {
@@ -76,6 +89,11 @@ export function account(root: Json): Account {
     authenticated: str(info.auth) === "1",
     status: str(info.status),
     outputFormats: Array.isArray(info.allowed_output_formats) ? info.allowed_output_formats.map(str).filter((s): s is string => !!s) : [],
+    // Seconds since 1970; panels send null, "null" or 0 for "never expires".
+    expiresAt: ((secs) => (secs ? secs * 1000 : undefined))(whole(info.exp_date, 1)),
+    maxConnections: whole(info.max_connections, 1),
+    activeConnections: whole(info.active_cons, 0),
+    trial: str(info.is_trial) === "1",
   };
 }
 

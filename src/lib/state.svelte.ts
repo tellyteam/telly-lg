@@ -3,6 +3,8 @@ import { syncIdentity, type Channel, type Group, type Provider, type Series, typ
 import * as P from "./playback";
 import * as repo from "./repo";
 import { mayHavePlus, offersPlus, plusReminderDue } from "./plus";
+import { reminderDue } from "./account";
+import type { Account } from "./xtream";
 import { markFocus, restoreFocus, type FocusMark } from "./tv";
 import { syncOnce, leave as leaveRelay, checkout as relayCheckout, onSale as relayOnSale, plus as relayPlus, PlusNeededError, SyncError, type PlusStatus } from "./sync/client";
 import { deriveKeys, hex, newCode, newDeviceId, normaliseCode, providerTag, randomBytes } from "./sync/crypto";
@@ -49,6 +51,8 @@ interface Meta {
   plusOfferedAt?: number;
   /** Home's reminder of telly Plus was closed: it's for good. */
   plusReminderClosed?: boolean;
+  /** The day (days since 1970) the subscription's ending was last mentioned: once a day at most. */
+  accountRemindedDay?: number;
 }
 
 /** A provider saved on this TV. [changedAt] is when it was added or last changed (ms). */
@@ -97,6 +101,11 @@ class App {
   refreshing = $state(false);
   loadError = $state<string | null>(null);
   meta = $state<Meta>({});
+  /** The subscription's end date and connections, shown in Settings (Xtream providers only). */
+  account = $state<{ details?: Account; error?: string } | null>(null);
+  /** A short message over whatever is showing, such as the subscription ending soon. */
+  notice = $state<string | null>(null);
+  private noticeTimer?: ReturnType<typeof setTimeout>;
 
   favourites = $state<string[]>([]);
   progress = $state<Record<string, P.Progress>>({});
@@ -251,9 +260,45 @@ class App {
    */
   private async useProvider(p: Provider) {
     this.provider = p;
+    this.account = null;
     backend.setAllowCleartext(p.allowCleartext);
     // Other devices' changes before the lists' episode check, so episodes watched there count.
-    void this.loadSaved(p).then(() => this.syncNow()).then(() => this.refresh());
+    void this.loadSaved(p).then(() => this.syncNow()).then(() => this.refresh()).then(() => this.remindIfExpiring(p));
+  }
+
+  // ---- Subscription ----
+
+  /** Fetches the subscription's details afresh (Settings shows them; cheap: one small request). */
+  async loadAccount() {
+    const p = this.provider;
+    if (p?.kind !== "xtream") return;
+    try {
+      const details = await repo.account(p);
+      if (this.provider === p) this.account = { details };
+    } catch {
+      if (this.provider === p && !this.account?.details) this.account = { error: "Couldn't reach your provider just now." };
+    }
+  }
+
+  /** Once a day, in the last week of a subscription: "Your subscription ends in 3 days" (as on Fire TV). */
+  private async remindIfExpiring(p: Provider) {
+    if (p.kind !== "xtream" || this.provider !== p) return;
+    const today = Math.floor(Date.now() / 86_400_000);
+    if (this.meta.accountRemindedDay === today) return;
+    const details = await repo.account(p).catch(() => undefined);
+    if (!details || this.provider !== p) return;
+    this.account = { details };
+    const text = reminderDue(details, Date.now());
+    if (!text) return;
+    this.meta.accountRemindedDay = today;
+    backend.storeWrite("meta", this.meta);
+    this.showNotice(text);
+  }
+
+  showNotice(text: string, ms = 8000) {
+    clearTimeout(this.noticeTimer);
+    this.notice = text;
+    this.noticeTimer = setTimeout(() => (this.notice = null), ms);
   }
 
   /** The saved lists, one at a time (films and series first, for Home), the screen updating between. */
@@ -1007,6 +1052,13 @@ class App {
   saveSettings() {
     backend.storeWrite("settings", this.settings, 0);
   }
+
+  /** Chosen in the player: the language subtitles start in from now on (null: off). */
+  setSubtitleLang(lang: string | null) {
+    if ((this.settings.subtitleLang ?? null) === lang) return;
+    this.settings = { ...this.settings, subtitleLang: lang };
+    this.saveSettings();
+  }
 }
 
 function parseSync(text: string | null): SyncConfig | null {
@@ -1040,13 +1092,6 @@ function parseProviders(text: string): SavedProvider[] {
       : [];
   } catch {
     return [];
-  }
-
-  /** Chosen in the player: the language subtitles start in from now on (null: off). */
-  setSubtitleLang(lang: string | null) {
-    if ((this.settings.subtitleLang ?? null) === lang) return;
-    this.settings = { ...this.settings, subtitleLang: lang };
-    this.saveSettings();
   }
 }
 

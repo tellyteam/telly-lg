@@ -8,6 +8,7 @@
   import { formatCode } from "../lib/sync/crypto";
   import { syncLink } from "../lib/sync/link";
   import { dayText } from "../lib/plus";
+  import { connections, summary } from "../lib/account";
   import QrCode from "../components/QrCode.svelte";
   import PlainHttpSwitch from "../components/PlainHttpSwitch.svelte";
   import PlusPanel from "../components/PlusPanel.svelte";
@@ -100,6 +101,8 @@
   }
 
   const p = $derived(app.provider!);
+  // The subscription's details afresh each time Settings opens, as on Fire TV.
+  $effect(() => { if (p.kind === "xtream") void app.loadAccount(); });
   const toggle = (key: "autoNext") => { app.settings[key] = !app.settings[key]; app.saveSettings(); };
 </script>
 
@@ -118,6 +121,10 @@
         <div class="btns"><button class="btn small" onclick={() => app.go({ name: "setup", adding: true })}>Add another provider</button>
           {#if confirmRemove}<button class="btn small" onclick={() => { confirmRemove = false; if (app.activeId) void app.removeProvider(app.activeId); }}>Remove {p.name}</button><button class="btn small" onclick={() => (confirmRemove = false)}>Cancel</button>
           {:else}<button class="btn small" onclick={() => (confirmRemove = true)}>Remove {p.name}…</button>{/if}</div></div>
+      {#if p.kind === "xtream"}
+        {@const details = app.account?.details}
+        <div class="line"><div>{details ? `Subscription: ${summary(details, Date.now())}` : app.account?.error ?? "Checking your subscription…"}{#if details && connections(details)}<small>{connections(details)}</small>{/if}</div></div>
+      {/if}
       <PlainHttpSwitch title="Allow plain HTTP for this provider" on={p.allowCleartext} onchange={(on) => app.setAllowCleartext(on)} />
     </div>
     <div class="panel"><h4>Playback</h4>

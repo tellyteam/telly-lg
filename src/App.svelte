@@ -105,4 +105,5 @@
   <!-- telly Plus, after the first proper watch: over Home, once the player has gone. -->
   {#if app.plusOffer && !app.player && app.provider}<PlusOffer />{/if}
   {#if app.player}{#key app.player}<Player request={app.player} />{/key}{/if}
+  {#if app.notice}<div class="app-notice notice" role="status">{app.notice}</div>{/if}
 </div>

@@ -157,6 +157,12 @@ export async function filmDetails(p: Provider, film: Channel, source: Source): P
 }
 
 /** Checks a login before it's saved: Xtream logs in, M3U downloads the playlist. */
+/** The subscription's details, afresh (Xtream providers only): one small request. */
+export async function account(p: Provider): Promise<X.Account | undefined> {
+  if (p.kind !== "xtream") return undefined;
+  return X.account(await getJson(X.apiUrl(X.serverUrl(p.server), p.username, p.password)));
+}
+
 export async function verify(p: Provider): Promise<void> {
   await liveGroups(p, "network");
 }
