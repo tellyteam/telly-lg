@@ -3,6 +3,9 @@ import { syncIdentity, type Channel, type Group, type Provider, type Series, typ
 import * as P from "./playback";
 import * as repo from "./repo";
 import { mayHavePlus, offersPlus, plusReminderDue } from "./plus";
+import { reminderDue } from "./account";
+import { arrange, noPrefs, toggleHidden, togglePinned, type Arrangement, type CategoryKind, type CategoryPrefs } from "./categories";
+import type { Account } from "./xtream";
 import { markFocus, restoreFocus, type FocusMark } from "./tv";
 import { syncOnce, leave as leaveRelay, checkout as relayCheckout, onSale as relayOnSale, plus as relayPlus, PlusNeededError, SyncError, type PlusStatus } from "./sync/client";
 import { deriveKeys, hex, newCode, newDeviceId, normaliseCode, providerTag, randomBytes } from "./sync/crypto";
@@ -32,6 +35,11 @@ export interface PlayRequest {
 
 export interface Settings {
   autoNext: boolean;
+  /**
+   * The subtitle language last chosen ("en", or "und" for unlabelled tracks), turned on for every
+   * film and episode until Off; null or missing for off. Subtitles start off whatever the file says.
+   */
+  subtitleLang?: string | null;
 }
 
 interface Meta {
@@ -44,6 +52,8 @@ interface Meta {
   plusOfferedAt?: number;
   /** Home's reminder of telly Plus was closed: it's for good. */
   plusReminderClosed?: boolean;
+  /** The day (days since 1970) the subscription's ending was last mentioned: once a day at most. */
+  accountRemindedDay?: number;
 }
 
 /** A provider saved on this TV. [changedAt] is when it was added or last changed (ms). */
@@ -92,6 +102,13 @@ class App {
   refreshing = $state(false);
   loadError = $state<string | null>(null);
   meta = $state<Meta>({});
+  /** The subscription's end date and connections, shown in Settings (Xtream providers only). */
+  account = $state<{ details?: Account; error?: string } | null>(null);
+  /** How this provider's categories are arranged: some pinned to the top, some hidden. */
+  categories = $state<Arrangement>({});
+  /** A short message over whatever is showing, such as the subscription ending soon. */
+  notice = $state<string | null>(null);
+  private noticeTimer?: ReturnType<typeof setTimeout>;
 
   favourites = $state<string[]>([]);
   progress = $state<Record<string, P.Progress>>({});
@@ -222,6 +239,7 @@ class App {
     this.progress = r.progress;
     this.history = r.history;
     this.ledger = r.ledger;
+    this.categories = (await backend.storeRead<Arrangement>(`categories-${saved.id}`)) ?? {};
     this.activeId = saved.id;
     this.seedWatched();
     this.meta.activeProvider = saved.id;
@@ -244,11 +262,50 @@ class App {
    * Shows the app straight away, the saved lists as each is ready, then refreshes them in the
    * background (as the Fire TV app does).
    */
-  private async useProvider(p: Provider) {
-    this.provider = p;
+  private async useProvider(given: Provider) {
+    this.provider = given;
+    // What's kept is a reactive copy of [given] (unless it was one already), and later checks of
+    // "still this provider?" compare with what's kept.
+    const p = this.provider;
+    this.account = null;
     backend.setAllowCleartext(p.allowCleartext);
     // Other devices' changes before the lists' episode check, so episodes watched there count.
-    void this.loadSaved(p).then(() => this.syncNow()).then(() => this.refresh());
+    void this.loadSaved(p).then(() => this.syncNow()).then(() => this.refresh()).then(() => this.remindIfExpiring(p));
+  }
+
+  // ---- Subscription ----
+
+  /** Fetches the subscription's details afresh (Settings shows them; cheap: one small request). */
+  async loadAccount() {
+    const p = this.provider;
+    if (p?.kind !== "xtream") return;
+    try {
+      const details = await repo.account(p);
+      if (this.provider === p) this.account = { details };
+    } catch {
+      if (this.provider === p && !this.account?.details) this.account = { error: "Couldn't reach your provider just now." };
+    }
+  }
+
+  /** Once a day, in the last week of a subscription: "Your subscription ends in 3 days" (as on Fire TV). */
+  private async remindIfExpiring(p: Provider) {
+    if (p.kind !== "xtream" || this.provider !== p) return;
+    const today = Math.floor(Date.now() / 86_400_000);
+    if (this.meta.accountRemindedDay === today) return;
+    const details = await repo.account(p).catch(() => undefined);
+    if (!details || this.provider !== p) return;
+    this.account = { details };
+    const text = reminderDue(details, Date.now());
+    if (!text) return;
+    this.meta.accountRemindedDay = today;
+    backend.storeWrite("meta", this.meta);
+    this.showNotice(text);
+  }
+
+  showNotice(text: string, ms = 8000) {
+    clearTimeout(this.noticeTimer);
+    this.notice = text;
+    this.noticeTimer = setTimeout(() => (this.notice = null), ms);
   }
 
   /** The saved lists, one at a time (films and series first, for Home), the screen updating between. */
@@ -374,6 +431,7 @@ class App {
     await this.saveProviders(this.providers.filter((p) => p.id !== id));
     // Its history holds stream URLs, which carry the login.
     for (const name of RECORDS) await backend.storeDelete(recordName(name, id));
+    await backend.storeDelete(`categories-${id}`);
     void repo.clearSavedCataloguesFor(gone.provider);
     if (id !== this.activeId) return;
     this.back = [];
@@ -387,6 +445,7 @@ class App {
     this.progress = {};
     this.history = [];
     this.ledger = emptyLedger();
+    this.categories = {};
     this.activeId = null;
     this.meta.activeProvider = undefined;
     backend.storeWrite("meta", this.meta, 0);
@@ -442,15 +501,39 @@ class App {
   film = (id: string) => this.filmById.get(id);
   seriesItem = (id: string) => this.seriesById.get(id);
 
+  // ---- Categories ----
+
+  /** Live TV, films and series as the user arranged them: pinned first, hidden ones left out. */
+  get shownLive() { return this.live && arrange(this.live, this.categories.live); }
+  get shownFilms() { return this.films && arrange(this.films, this.categories.films); }
+  get shownSeries() { return this.series && arrange(this.series, this.categories.series); }
+
+  /** All of a kind's categories, in the provider's order, for arranging them. */
+  allCategories(kind: CategoryKind): Group<Channel | Series>[] {
+    return (kind === "live" ? this.live : kind === "films" ? this.films : this.series) ?? [];
+  }
+
+  togglePinned(kind: CategoryKind, name: string) { this.arrangeCategories(kind, togglePinned(this.categories[kind] ?? noPrefs(), name)); }
+  toggleHidden(kind: CategoryKind, name: string) { this.arrangeCategories(kind, toggleHidden(this.categories[kind] ?? noPrefs(), name)); }
+  resetCategories(kind: CategoryKind) { this.arrangeCategories(kind, noPrefs()); }
+
+  private arrangeCategories(kind: CategoryKind, prefs: CategoryPrefs) {
+    if (!this.activeId) return;
+    this.categories = { ...this.categories, [kind]: prefs };
+    this.searchIndex = undefined;
+    backend.storeWrite(`categories-${this.activeId}`, this.categories, 0);
+  }
+
   private searchIndex?: { live: [string, Channel][]; films: [string, Channel][]; series: [string, Series][] };
 
   search(query: string, limit = 40) {
     const q = normalise(query.trim());
     if (!q) return { live: [], films: [], series: [] };
+    // Hidden categories stay out of Search too, as on Fire TV.
     this.searchIndex ??= {
-      live: (this.live ?? []).flatMap((g) => g.items).map((c) => [normalise(c.name), c]),
-      films: (this.films ?? []).flatMap((g) => g.items).map((c) => [normalise(c.name), c]),
-      series: (this.series ?? []).flatMap((g) => g.items).map((s) => [normalise(s.name), s]),
+      live: (this.shownLive ?? []).flatMap((g) => g.items).map((c) => [normalise(c.name), c]),
+      films: (this.shownFilms ?? []).flatMap((g) => g.items).map((c) => [normalise(c.name), c]),
+      series: (this.shownSeries ?? []).flatMap((g) => g.items).map((s) => [normalise(s.name), s]),
     };
     const find = <T>(list: [string, T][]) => {
       // Names that start with the query first, then any that contain it.
@@ -1001,6 +1084,13 @@ class App {
 
   saveSettings() {
     backend.storeWrite("settings", this.settings, 0);
+  }
+
+  /** Chosen in the player: the language subtitles start in from now on (null: off). */
+  setSubtitleLang(lang: string | null) {
+    if ((this.settings.subtitleLang ?? null) === lang) return;
+    this.settings = { ...this.settings, subtitleLang: lang };
+    this.saveSettings();
   }
 }
 

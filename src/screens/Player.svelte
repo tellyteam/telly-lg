@@ -88,6 +88,7 @@
     time = duration = 0;
     nextDismissed = false;
     audio = subs = [];
+    subApplied = false;
     const target = request.items[i];
     const resumeAt = live ? 0 : startAt ?? P.resumePosition(app.progressOf(target.url), P.isFilmUrl(target.url));
     const attached = await attach(video, target.url, {
@@ -97,6 +98,7 @@
     });
     if (id !== loadId) return attached.destroy();
     engine = attached;
+    readTracks();
     video.playbackRate = speed;
     if (resumeAt > 0) {
       const seek = () => { video.currentTime = resumeAt / 1000; };
@@ -137,6 +139,27 @@
     audioSel = engine.audioTrack();
     subs = engine.subtitleTracks();
     subSel = engine.subtitleTrack();
+    // Subtitles start off; a language chosen before is turned on for every film and episode, as
+    // on Fire TV, until Off is chosen. Once per stream, so choosing Off here sticks.
+    const lang = app.settings.subtitleLang;
+    if (!subApplied && lang && subSel < 0) {
+      const t = subs.find((s) => s.lang === lang);
+      if (t) {
+        subApplied = true;
+        engine.setSubtitleTrack(t.id);
+        subSel = t.id;
+      }
+    }
+  }
+
+  /** Whether this stream's remembered subtitle language has been turned on already. */
+  let subApplied = false;
+
+  function chooseSubtitles(t: Track | null) {
+    engine?.setSubtitleTrack(t?.id ?? -1);
+    subSel = t?.id ?? -1;
+    subApplied = true;
+    app.setSubtitleLang(t?.lang ?? null);
   }
 
   function seekTo(ms: number) {
@@ -516,8 +539,8 @@
         {#each audio as t (t.id)}<button class="opt" class:sel={t.id === audioSel} onclick={() => { engine?.setAudioTrack(t.id); audioSel = t.id; }}>{t.label}</button>
         {:else}<div class="hint" style="padding:4px 10px">Only one audio track</div>{/each}
         <h4 style="margin-top:10px">Subtitles</h4>
-        <button class="opt" class:sel={subSel < 0} onclick={() => { engine?.setSubtitleTrack(-1); subSel = -1; }}>Off</button>
-        {#each subs as t (t.id)}<button class="opt" class:sel={t.id === subSel} onclick={() => { engine?.setSubtitleTrack(t.id); subSel = t.id; }}>{t.label}</button>{/each}
+        <button class="opt" class:sel={subSel < 0} onclick={() => chooseSubtitles(null)}>Off</button>
+        {#each subs as t (t.id)}<button class="opt" class:sel={t.id === subSel} onclick={() => chooseSubtitles(t)}>{t.label}</button>{/each}
       </div>
     {:else if menu === "speed"}
       <div class="menu"><h4>Speed</h4>

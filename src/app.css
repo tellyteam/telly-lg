@@ -233,6 +233,8 @@ kbd { font: 11px ui-monospace, Menlo, Consolas, monospace; background: rgba(255,
 .field input:focus { border-color: rgba(79,195,247,.6); background: rgba(255,255,255,.08); }
 .error { color: #ff9b9b; background: rgba(229,72,77,.1); border: 1px solid rgba(229,72,77,.3); border-radius: 10px; padding: 10px 14px; }
 .notice { color: var(--text); background: var(--accent-soft); border: 1px solid rgba(79,195,247,.35); border-radius: 10px; padding: 10px 14px; }
+/* A short message over everything (the subscription ending soon): solid, since it can sit on video. */
+.app-notice { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); z-index: 50; background: var(--surface); box-shadow: 0 8px 30px rgba(0,0,0,.5); pointer-events: none; max-width: 80vw; text-align: center; }
 
 .spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid rgba(255,255,255,.15); border-top-color: var(--accent); animation: spin .8s linear infinite; }
 .center { position: absolute; inset: 0; display: grid; place-items: center; }
