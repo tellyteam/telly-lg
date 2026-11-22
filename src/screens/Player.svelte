@@ -322,7 +322,7 @@
     const handled = true;
     // On a TV the remote has its own volume buttons: Up and Down just show the controls, OK plays or pauses.
     if (isTV) {
-      const inBar = (document.activeElement as HTMLElement | null)?.closest?.(".ctrls, .menu, .back");
+      const inBar = (document.activeElement as HTMLElement | null)?.closest?.(".ctrls, .menu, .back, .failure");
       // In the control bar (or a menu), the remote moves between buttons as everywhere else.
       if (inBar && k.startsWith("Arrow")) return;
       if (k === "ArrowDown" || k === "ArrowUp") {
@@ -416,6 +416,14 @@
     }
     wake();
   }
+
+  // A remote can't point: Try again takes focus as a failure appears, so OK retries and the arrows
+  // reach Next channel and Close. Once it's gone (retrying), the remote talks to the player again.
+  $effect(() => {
+    if (!isTV || !stage) return;
+    if (error) stage.querySelector<HTMLElement>(".failure .btn.primary")?.focus({ preventScroll: true });
+    else if (!stage.contains(document.activeElement)) stage.focus({ preventScroll: true });
+  });
 
   onMount(() => {
     const ro = new ResizeObserver(measure);
