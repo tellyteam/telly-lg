@@ -14,7 +14,12 @@ import { engineFor } from "./playback";
 export interface Track {
   id: number;
   label: string;
+  /** The track's language as a base code ("en"), or "und" when it doesn't say. */
+  lang: string;
 }
+
+/** A track's language as telly remembers it: "en-GB" and "EN" are both "en"; none is "und". */
+export const langOf = (lang?: string) => (lang && lang.toLowerCase() !== "und" ? lang.toLowerCase().split(/[-_]/)[0] : "und");
 
 export interface Attached {
   destroy(): void;
@@ -54,7 +59,7 @@ function nativeTracks(video: HTMLVideoElement): Pick<Attached, "audioTracks" | "
   return {
     audioTracks: () => {
       const a = audio();
-      return a ? Array.from({ length: a.length }, (_, i) => ({ id: i, label: label(a[i].label, a[i].language, i) })) : [];
+      return a ? Array.from({ length: a.length }, (_, i) => ({ id: i, label: label(a[i].label, a[i].language, i), lang: langOf(a[i].language) })) : [];
     },
     audioTrack: () => {
       const a = audio();
@@ -66,7 +71,7 @@ function nativeTracks(video: HTMLVideoElement): Pick<Attached, "audioTracks" | "
       const a = audio();
       if (a) for (let i = 0; i < a.length; i++) a[i].enabled = i === id;
     },
-    subtitleTracks: () => texts().map((t, i) => ({ id: i, label: label(t.label, t.language, i) })),
+    subtitleTracks: () => texts().map((t, i) => ({ id: i, label: label(t.label, t.language, i), lang: langOf(t.language) })),
     subtitleTrack: () => texts().findIndex((t) => t.mode === "showing"),
     setSubtitleTrack: (id) => texts().forEach((t, i) => (t.mode = i === id ? "showing" : "disabled")),
   };
@@ -156,10 +161,10 @@ function attachHls(HlsJs: typeof Hls, video: HTMLVideoElement, src: string, opts
   hls.attachMedia(video);
   return {
     destroy: () => hls.destroy(),
-    audioTracks: () => hls.audioTracks.map((t, i) => ({ id: i, label: label(t.name, t.lang, i) })),
+    audioTracks: () => hls.audioTracks.map((t, i) => ({ id: i, label: label(t.name, t.lang, i), lang: langOf(t.lang) })),
     audioTrack: () => hls.audioTrack,
     setAudioTrack: (id) => (hls.audioTrack = id),
-    subtitleTracks: () => hls.subtitleTracks.map((t, i) => ({ id: i, label: label(t.name, t.lang, i) })),
+    subtitleTracks: () => hls.subtitleTracks.map((t, i) => ({ id: i, label: label(t.name, t.lang, i), lang: langOf(t.lang) })),
     subtitleTrack: () => hls.subtitleTrack,
     setSubtitleTrack: (id) => {
       hls.subtitleTrack = id;

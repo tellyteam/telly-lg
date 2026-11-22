@@ -32,6 +32,11 @@ export interface PlayRequest {
 
 export interface Settings {
   autoNext: boolean;
+  /**
+   * The subtitle language last chosen ("en", or "und" for unlabelled tracks), turned on for every
+   * film and episode until Off; null or missing for off. Subtitles start off whatever the file says.
+   */
+  subtitleLang?: string | null;
 }
 
 interface Meta {
@@ -1035,6 +1040,13 @@ function parseProviders(text: string): SavedProvider[] {
       : [];
   } catch {
     return [];
+  }
+
+  /** Chosen in the player: the language subtitles start in from now on (null: off). */
+  setSubtitleLang(lang: string | null) {
+    if ((this.settings.subtitleLang ?? null) === lang) return;
+    this.settings = { ...this.settings, subtitleLang: lang };
+    this.saveSettings();
   }
 }
 
