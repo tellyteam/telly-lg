@@ -6,6 +6,8 @@ import type { ServerResponse } from "node:http";
  * Streams redirect to public test videos. With TELLY_FAKE_MKV set to an MKV's address (served
  * with byte ranges), every third film is that MKV, for testing playback, seeking and downloads.
  * With TELLY_FAKE_BIG set, the lists are as long as a big real provider's, for measuring.
+ * A username like `ends-in-3` makes the subscription end in that many days (with 1 of 2 connections
+ * in use), for Settings' subscription details and the reminder in its last week.
  */
 
 const HLS = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
@@ -52,7 +54,11 @@ export function fakeProvider(path: string, query: URLSearchParams, res: ServerRe
   if (!path.endsWith("player_api.php")) return res.writeHead(404).end();
 
   const action = query.get("action");
-  if (!action) return json({ user_info: { auth: 1, status: "Active", allowed_output_formats: ["m3u8", "ts"] } });
+  if (!action) {
+    const ends = query.get("username")?.match(/^ends-in-(\d+)$/);
+    const subscription = ends ? { exp_date: String(Math.floor(Date.now() / 1000) + Number(ends[1]) * 86_400 + 3_600), max_connections: "2", active_cons: "1" } : {};
+    return json({ user_info: { auth: 1, status: "Active", allowed_output_formats: ["m3u8", "ts"], ...subscription } });
+  }
   const cats = (list: string[]) => json(list.map((name, i) => ({ category_id: String(i + 1), category_name: name })));
   switch (action) {
     case "get_live_categories": return cats(liveCats);

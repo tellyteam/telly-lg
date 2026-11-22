@@ -258,8 +258,11 @@ class App {
    * Shows the app straight away, the saved lists as each is ready, then refreshes them in the
    * background (as the Fire TV app does).
    */
-  private async useProvider(p: Provider) {
-    this.provider = p;
+  private async useProvider(given: Provider) {
+    this.provider = given;
+    // What's kept is a reactive copy of [given] (unless it was one already), and later checks of
+    // "still this provider?" compare with what's kept.
+    const p = this.provider;
     this.account = null;
     backend.setAllowCleartext(p.allowCleartext);
     // Other devices' changes before the lists' episode check, so episodes watched there count.
