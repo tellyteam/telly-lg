@@ -63,10 +63,16 @@
   let watchdog: ReturnType<typeof setTimeout> | undefined;
   /**
    * Some formats are downloaded but never decoded, and the video element raises no error. If
-   * nothing has started after this long, say so.
+   * nothing has started after this long, say so. Live channels get longer: during a big match a
+   * provider's sports channels can take most of a minute to start, in every app.
    */
   const STALL_MS = 20_000;
-  async function load(i: number, startAt?: number) {
+  const LIVE_STALL_MS = 60_000;
+  /** Try again waits longer still, for a provider that's very slow but does get there. */
+  const RETRY_STALL_MS = 180_000;
+  /** The watchdog fired before the stream told us anything: slow, not unplayable. */
+  let slow = $state(false);
+  async function load(i: number, startAt?: number, stallMs = live ? LIVE_STALL_MS : STALL_MS) {
     const id = ++loadId;
     saveProgress();
     // Live TV counts straight away; anything else once it has played for 30 s (countPlayed).
@@ -77,6 +83,7 @@
     engine?.destroy();
     engine = undefined;
     error = null;
+    slow = false;
     waiting = true;
     time = duration = 0;
     nextDismissed = false;
@@ -102,12 +109,15 @@
     clearTimeout(watchdog);
     watchdog = setTimeout(() => {
       if (id === loadId && !error && video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-        error = "This video's format can't be played here.";
+        // With its metadata read, the stream arrived and wasn't decoded; without, it never really came.
+        slow = video.readyState < HTMLMediaElement.HAVE_METADATA;
+        error = slow ? (live ? "The channel took too long to start." : "The video took too long to start.")
+          : "This video's format can't be played here.";
         waiting = false;
         engine?.destroy();
         engine = undefined;
       }
-    }, STALL_MS);
+    }, stallMs);
   }
 
   function go(i: number, startAt?: number) {
@@ -455,9 +465,9 @@
   {#if error}
     <div class="failure">
       <b>{error}</b>
-      <span>{live ? "The channel may be off air, or your provider may limit how many streams play at once." : "Some providers' files use formats this computer's video engine can't decode."}</span>
+      <span>{slow ? "Your provider may be busy: during big events streams can be slow to start. Try again in a moment." : live ? "The channel may be off air, or your provider may limit how many streams play at once." : "Some providers' files use formats this computer's video engine can't decode."}</span>
       <div class="btns">
-        <button class="btn primary" onclick={() => load(index)}>Try again</button>
+        <button class="btn primary" onclick={() => load(index, undefined, RETRY_STALL_MS)}>Try again</button>
 
         {#if live && request.items.length > 1}<button class="btn" onclick={() => go((index + 1) % request.items.length)}>Next channel</button>{/if}
         <button class="btn" onclick={close}>Close</button>
